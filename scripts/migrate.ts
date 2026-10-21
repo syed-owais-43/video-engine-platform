@@ -18,6 +18,9 @@ async function main() {
     console.log("Migrated Postgres database.");
     return;
   }
+  if (process.env.VERCEL) {
+    throw new Error("DATABASE_URL is not set. Add your Postgres connection string in Vercel → Settings → Environment Variables, then redeploy.");
+  }
   const dir = process.env.PGLITE_DIR ?? ".data/pglite";
   mkdirSync(dir, { recursive: true });
   const client = new PGlite(dir);

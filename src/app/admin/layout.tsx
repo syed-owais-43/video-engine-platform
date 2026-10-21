@@ -9,6 +9,7 @@ const tabs = [
   { href: "/admin/engines", label: "Engines" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/plans", label: "Plans" },
+  { href: "/admin/settings", label: "Settings" },
 ];
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {

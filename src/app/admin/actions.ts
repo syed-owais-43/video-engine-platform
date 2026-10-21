@@ -4,9 +4,13 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { engineVersions, engines, plans, users } from "@/db/schema";
-import { requireAdmin } from "@/lib/auth";
+import { creditPacks, engineVersions, engines, plans, sessions, users } from "@/db/schema";
+import { randomBytes } from "node:crypto";
+import { hashPassword, requireAdmin } from "@/lib/auth";
 import { filesFromZip, importEngineVersion } from "@/lib/engines";
+import { adminAdjust } from "@/lib/credits";
+import { stripeReady } from "@/lib/settings";
+import { formatPrice, syncPackToStripe, syncPlanToStripe } from "@/lib/stripe-admin";
 
 export type FormState = { ok?: string; error?: string } | undefined;
 
@@ -83,13 +87,32 @@ export async function setUserFlags(form: FormData) {
   revalidatePath("/admin/users");
 }
 
+export type ResetState = { password?: string; error?: string } | undefined;
+
+// There is no email delivery, so the admin can issue a temporary password and pass it on.
+export async function resetPassword(_: ResetState, form: FormData): Promise<ResetState> {
+  await requireAdmin();
+  const id = String(form.get("id"));
+  const temp = randomBytes(9).toString("base64url");
+  await db.update(users).set({ passwordHash: await hashPassword(temp) }).where(eq(users.id, id));
+  await db.delete(sessions).where(eq(sessions.userId, id));
+  return { password: temp };
+}
+
 // ---- Plans ----
+
+const money = z
+  .string()
+  .trim()
+  .regex(/^\d+(\.\d{1,2})?$/, "Price must be a number like 5.99")
+  .transform((v) => Math.round(Number(v) * 100));
 
 const planSchema = z.object({
   name: z.string().trim().min(1).max(60),
   description: z.string().trim().max(300),
-  stripePriceId: z.string().trim().regex(/^price_[A-Za-z0-9]+$/, "Stripe price id must look like price_..."),
-  priceLabel: z.string().trim().min(1).max(40),
+  price: money,
+  currency: z.string().trim().toLowerCase().regex(/^[a-z]{3}$/, "Currency must be a 3-letter code like usd"),
+  monthlyCredits: z.coerce.number().int().min(0).max(1_000_000),
   monthlyProjects: z.string().trim().regex(/^\d*$/, "Project limit must be a whole number or blank"),
   sort: z.coerce.number().int().min(0).max(999),
 });
@@ -102,21 +125,91 @@ export async function savePlan(_: FormState, form: FormData): Promise<FormState>
   const values = {
     name: d.name,
     description: d.description,
-    stripePriceId: d.stripePriceId,
-    priceLabel: d.priceLabel,
+    priceCents: d.price,
+    currency: d.currency,
+    priceLabel: formatPrice(d.price, d.currency, true),
+    monthlyCredits: d.monthlyCredits,
     monthlyProjects: d.monthlyProjects === "" ? null : Number(d.monthlyProjects),
+    imageModels: form.getAll("imageModels").map(String),
+    commercialUse: form.get("commercialUse") === "on",
     sort: d.sort,
     features: lines(form.get("features")),
     active: form.get("active") === "on",
   };
   const id = String(form.get("id") ?? "");
-  try {
-    if (id) await db.update(plans).set(values).where(eq(plans.id, id));
-    else await db.insert(plans).values(values);
-  } catch {
-    return { error: "Couldn't save. Is that Stripe price id already used by another plan?" };
+  const [saved] = id
+    ? await db.update(plans).set(values).where(eq(plans.id, id)).returning()
+    : await db.insert(plans).values(values).returning();
+  let note = id ? "Plan saved." : "Plan created.";
+  // Keep Stripe in step once the plan has been published there.
+  if (saved.stripePriceId && (await stripeReady())) {
+    try {
+      const r = await syncPlanToStripe(saved);
+      if (r.replaced) note += " The price changed, so a new Stripe price was created; existing subscribers keep their old price.";
+    } catch (e) {
+      note += ` Stripe update failed: ${e instanceof Error ? e.message : e}`;
+    }
   }
   revalidatePath("/admin/plans");
   revalidatePath("/pricing");
-  return { ok: id ? "Plan updated." : "Plan created." };
+  return { ok: note };
+}
+
+export async function publishPlan(_: FormState, form: FormData): Promise<FormState> {
+  await requireAdmin();
+  if (!(await stripeReady())) return { error: "Connect Stripe first (Admin → Settings → Payments)." };
+  const [plan] = await db.select().from(plans).where(eq(plans.id, String(form.get("id"))));
+  if (!plan) return { error: "Plan not found" };
+  try {
+    await syncPlanToStripe(plan);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Stripe error" };
+  }
+  revalidatePath("/admin/plans");
+  revalidatePath("/pricing");
+  return { ok: "Published to Stripe. Customers can subscribe now." };
+}
+
+// ---- Credit packs ----
+
+const packSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  credits: z.coerce.number().int().min(1).max(10_000_000),
+  price: money,
+  currency: z.string().trim().toLowerCase().regex(/^[a-z]{3}$/, "Currency must be a 3-letter code like usd"),
+  sort: z.coerce.number().int().min(0).max(999),
+});
+
+export async function savePack(_: FormState, form: FormData): Promise<FormState> {
+  await requireAdmin();
+  const parsed = packSchema.safeParse(Object.fromEntries(form));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const d = parsed.data;
+  const values = { name: d.name, credits: d.credits, priceCents: d.price, currency: d.currency, sort: d.sort, active: form.get("active") === "on" };
+  const id = String(form.get("id") ?? "");
+  const [saved] = id
+    ? await db.update(creditPacks).set(values).where(eq(creditPacks.id, id)).returning()
+    : await db.insert(creditPacks).values(values).returning();
+  let note = id ? "Pack saved." : "Pack created.";
+  if (await stripeReady()) {
+    try {
+      await syncPackToStripe(saved);
+      note += " Stripe is up to date.";
+    } catch (e) {
+      note += ` Stripe update failed: ${e instanceof Error ? e.message : e}`;
+    }
+  } else note += " Connect Stripe to start selling it.";
+  revalidatePath("/admin/plans");
+  revalidatePath("/dashboard");
+  return { ok: note };
+}
+
+// ---- Credits ----
+
+export async function adjustCredits(form: FormData) {
+  const admin = await requireAdmin();
+  const delta = Math.trunc(Number(form.get("delta")));
+  if (!delta || Math.abs(delta) > 10_000_000) return;
+  await adminAdjust(String(form.get("id")), delta, `by ${admin.email}${form.get("note") ? `: ${String(form.get("note")).slice(0, 200)}` : ""}`);
+  revalidatePath("/admin/users");
 }

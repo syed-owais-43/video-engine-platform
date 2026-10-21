@@ -1,10 +1,12 @@
 import { cookies } from "next/headers";
-import { baseUrl, googleConfigured } from "@/lib/config";
+import { baseUrl } from "@/lib/config";
+import { getSettings } from "@/lib/settings";
 import { randomToken } from "@/lib/crypto";
 import { safeNext } from "@/lib/auth";
 
 export async function GET(req: Request) {
-  if (!googleConfigured()) return new Response("Google sign-in is not configured", { status: 503 });
+  const google = (await getSettings()).google;
+  if (!google.clientId || !google.clientSecret) return new Response("Google sign-in is not configured", { status: 503 });
   const next = safeNext(new URL(req.url).searchParams.get("next"));
   const state = randomToken(16);
   const jar = await cookies();
@@ -13,7 +15,7 @@ export async function GET(req: Request) {
   jar.set("fw_g_next", next, opts);
 
   const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID!,
+    client_id: google.clientId,
     redirect_uri: `${baseUrl()}/api/auth/google/callback`,
     response_type: "code",
     scope: "openid email profile",

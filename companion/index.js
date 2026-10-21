@@ -190,6 +190,46 @@ server.registerTool(
 );
 
 server.registerTool(
+  "generate_image",
+  {
+    title: "Generate an image",
+    description:
+      "Generate one image with the user's image credits (only when the user wants AI images). Returns a temporary URL; save it with download_file.",
+    inputSchema: {
+      prompt: z.string().min(3).max(2000),
+      model: z.string().optional().describe("Model key from account_status; omit for the plan default"),
+      aspect: z.enum(["square", "landscape", "portrait", "landscape-4-3", "portrait-4-3"]).default("landscape"),
+      seed: z.number().int().optional(),
+    },
+  },
+  async (args) => callRemote("generate_image", args),
+);
+
+server.registerTool(
+  "download_file",
+  {
+    title: "Download a file",
+    description: "Download a URL (e.g. a generated image) into the workspace, for example <project>/assets/generated/hero.jpg.",
+    inputSchema: { url: z.string().url(), path: z.string().describe("Destination inside the workspace") },
+  },
+  async ({ url, path }) => {
+    try {
+      if (!/^https:\/\//.test(url)) return text("Only https URLs can be downloaded.", true);
+      const dest = resolvePath(path, { write: true });
+      const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+      if (!res.ok) return text(`Download failed: ${res.status}`, true);
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > 500 * 1024 * 1024) return text("File is larger than 500 MB.", true);
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, buf);
+      return text(`Saved ${buf.length} bytes to ${dest}`);
+    } catch (e) {
+      return text(e.message, true);
+    }
+  },
+);
+
+server.registerTool(
   "install_engine",
   {
     title: "Install engine scripts",

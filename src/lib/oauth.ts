@@ -15,7 +15,6 @@ export function protectedResourceMetadata() {
     authorization_servers: [baseUrl()],
     bearer_methods_supported: ["header"],
     scopes_supported: ["mcp"],
-    resource_name: "Framewright",
   };
 }
 

@@ -16,6 +16,9 @@ function create(): DB {
     const client = postgres(url, { max: 5, prepare: false });
     return drizzlePg(client, { schema });
   }
+  if (process.env.VERCEL) {
+    throw new Error("DATABASE_URL is not set. Add your Postgres connection string in Vercel → Settings → Environment Variables, then redeploy.");
+  }
   const client = new PGlite(PGLITE_DIR);
   return drizzlePglite(client, { schema }) as unknown as DB;
 }

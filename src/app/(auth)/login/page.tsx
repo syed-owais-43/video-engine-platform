@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCurrentUser, safeNext } from "@/lib/auth";
-import { googleConfigured } from "@/lib/config";
+import { googleReady } from "@/lib/settings";
 import { AuthForm } from "../auth-form";
 
 export const metadata: Metadata = { title: "Log in" };
@@ -13,7 +13,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
   const error = q.error === "google" ? "Google sign-in failed. Please try again." : undefined;
   return (
     <div className="px-4 py-20">
-      <AuthForm mode="login" next={next} googleEnabled={googleConfigured()} error={error} />
+      <AuthForm mode="login" next={next} googleEnabled={await googleReady()} error={error} />
     </div>
   );
 }

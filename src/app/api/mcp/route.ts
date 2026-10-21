@@ -7,7 +7,7 @@ import { CORS_HEADERS, preflight } from "@/lib/oauth";
 export const maxDuration = 60;
 
 function unauthorized() {
-  return new Response(JSON.stringify({ error: "invalid_token", error_description: "Sign in to Framewright or use an API key" }), {
+  return new Response(JSON.stringify({ error: "invalid_token", error_description: "Sign in or use an API key" }), {
     status: 401,
     headers: {
       ...CORS_HEADERS,
@@ -22,7 +22,7 @@ async function handle(req: Request) {
   const identity = await authenticateBearer(req.headers.get("authorization"));
   if (!identity) return unauthorized();
 
-  const server = createMcpServer(identity.userId);
+  const server = await createMcpServer(identity.userId);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);
   const res = await transport.handleRequest(req, {

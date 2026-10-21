@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { listPublishedEngines, readEngineFile } from "@/lib/engines";
+import { getBrand } from "@/lib/settings";
 
 export const metadata: Metadata = { title: "Terms & licence" };
 
 export default async function TermsPage() {
-  const engines = await listPublishedEngines();
+  const [engines, brand] = await Promise.all([listPublishedEngines(), getBrand()]);
   const licences = await Promise.all(
     engines.map(async (e) => ({
       engine: e,
@@ -18,7 +19,7 @@ export default async function TermsPage() {
       <h1 className="display mt-4 text-6xl">Terms & licence</h1>
       <div className="mt-8 space-y-4 text-sm leading-relaxed text-muted">
         <p>
-          A Framewright subscription gives one person access to the engines listed on this site through their own AI tools while the
+          A {brand.name} subscription gives one person access to the engines listed on this site through their own AI tools while the
           subscription is active. Each engine is also governed by its own licence, reproduced below. You keep the rights to the videos
           you make.
         </p>

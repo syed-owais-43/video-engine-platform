@@ -1,37 +1,53 @@
-# Framewright
+# Video-engine subscription site (technical reference)
 
-A paywalled MCP server and website that serves video-generation engines (Claude skills) to a subscriber's own AI. The user describes a
-video in Claude Code, Cursor or Claude Desktop; the AI calls Framewright to pick an engine, reads its instructions live, installs the
-engine's helper scripts locally and renders the video on the user's machine.
+The owner's setup guide is `../README.md` in the handover folder. This file is the technical reference.
+
+A paywalled MCP server and website that serves video-generation engines (Claude skills) to a subscriber's own AI. The user
+describes a video in Claude Code, Cursor or Claude Desktop; the AI calls the site to pick an engine, reads its instructions
+live, installs the engine's helper scripts locally and renders the video on the user's machine.
 
 ```
-User's AI ──MCP (OAuth or API key)──▶ /api/mcp ──▶ start_project / get_guide / get_scripts
+User's AI ──MCP (OAuth or API key)──▶ /api/mcp ──▶ start_project / get_guide / get_scripts / generate_image
    │                                                     │
    └── renders locally with Node/Python/FFmpeg ◀── signed bundle download (scripts + templates)
 ```
 
-- **Instructions stay on the server.** `SKILL.md` and `reference/**` are only ever sent through MCP tool calls, on every session, to
-  active subscribers. They are never in the downloadable bundle.
-- **Scripts are local.** Everything else in the engine (scripts, templates, licence) is a ZIP served from a 15-minute signed URL.
-- **Paywall:** Stripe monthly subscriptions. Plans (price, project limit, features) are managed in the admin panel. A "project" is one
-  `start_project` call; the limit resets each billing period.
+- **Instructions stay on the server.** `SKILL.md` and `reference/**` are only sent through MCP tool calls to active
+  subscribers; never in the downloadable bundle.
+- **Scripts are local.** Everything else in the engine is a ZIP served from a 15-minute signed URL.
+- **Paywall:** Stripe monthly subscriptions plus one-off credit packs. Plans (price, video limit, image credits, allowed
+  image models, usage rights) are managed in Admin → Plans and pushed to Stripe from there.
+- **Image credits:** `generate_image` calls fal.ai with the owner's key. Monthly plan credits are spent first, then top-up
+  credits; failed generations are refunded. Ledger in `credit_ledger`.
+
+## Configuration
+
+Only three environment variables (see `.env.example`): `DATABASE_URL`, `APP_URL`, `APP_SECRET`. Optional: `SETUP_CODE`,
+`ADMIN_EMAILS` (recovery admin), `FAL_API_BASE` (tests only).
+
+Everything else is set in **Admin → Settings** and stored encrypted (AES-256-GCM, key derived from `APP_SECRET`) in the
+`settings` table: brand (name, tagline, accent, logo, support email, companion npm name), Stripe (secret key, webhook
+secret, created automatically on https deployments), Google OAuth client, image generation (fal.ai key, models, credits).
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID/SECRET` and `FAL_KEY` env vars still work as fallbacks.
+
+First run: with no admin user, `/` redirects to `/setup`, which prints a one-time code to the server log (or uses
+`SETUP_CODE`), creates the admin and seeds the three default plans.
 
 ## Stack
 
-Next.js 16 (App Router) · Drizzle ORM on Postgres (embedded PGlite locally) · Stripe Billing · MCP TypeScript SDK (stateless Streamable
-HTTP) · own OAuth 2.1 server (dynamic client registration + PKCE) · Tailwind 4.
+Next.js 16 (App Router) · Drizzle ORM on Postgres (embedded PGlite locally) · Stripe Billing · MCP TypeScript SDK
+(stateless Streamable HTTP) · own OAuth 2.1 server (dynamic client registration + PKCE) · Tailwind 4 · fal.ai.
 
 ## Run locally
 
 ```bash
 npm install
-cp .env.example .env.local    # set ADMIN_EMAILS to your email
-npm run engine:import -- ../motion-video-director/skills/motion-video-director --version 3.5.2 --name "Motion Video Director" --tags "motion graphics,kinetic typography,explainer,promo" --publish
-npm run dev
+npm run dev            # applies migrations first; open http://localhost:3000 → /setup (code in this terminal)
 ```
 
-With no `DATABASE_URL`, data lives in `.data/pglite` (one process at a time: stop `npm run dev` before running import scripts).
-Sign up with an email listed in `ADMIN_EMAILS` to get the admin panel at `/admin`.
+With no `DATABASE_URL`, data lives in `.data/pglite` (one process at a time: stop `npm run dev` before running scripts).
+Engines can be uploaded in Admin → Engines, or from the CLI:
+`npm run engine:import -- <folder-or-zip> --version 3.5.3 --name "Motion Video Director" --tags "motion graphics,explainer" --publish`.
 
 Smoke-test the MCP server with an API key from the dashboard:
 
@@ -39,33 +55,21 @@ Smoke-test the MCP server with an API key from the dashboard:
 FW_KEY=fw_... node scripts/smoke-mcp.mjs '[["list_engines",{}],["account_status",{}]]'
 ```
 
+Stripe webhooks locally: `stripe listen --forward-to localhost:3000/api/stripe/webhook`, then paste the `whsec_…` into
+Admin → Settings → Payments.
+
 ## Deploy (Vercel + Neon)
 
-1. Create a Postgres database (Neon, Supabase…) and run `DATABASE_URL=... npm run db:migrate`.
-2. Import the engine against that database: `DATABASE_URL=... npm run engine:import -- <folder> --version 3.5.2 --publish`
-   (later versions can be uploaded as ZIPs from **Admin → Engines**).
-3. Deploy to Vercel with every variable from `.env.example`. `APP_URL` must be the public https URL. `APP_SECRET` is required.
-4. Google sign-in: create an OAuth client (Web) in Google Cloud Console with redirect URI `<APP_URL>/api/auth/google/callback`.
-5. Stripe:
-   - Create a Product with a monthly recurring Price, then add a plan with that `price_…` id in **Admin → Plans**.
-   - Add a webhook endpoint `<APP_URL>/api/stripe/webhook` with events `checkout.session.completed`,
-     `customer.subscription.created|updated|deleted|paused|resumed`; put its signing secret in `STRIPE_WEBHOOK_SECRET`.
-   - Enable the Customer Portal (Settings → Billing → Customer portal) so users can cancel and change cards.
-   - Local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
-   - Stripe doesn't onboard businesses based in Bangladesh; the account needs an entity in a supported country (e.g. via Stripe Atlas).
-     Until then, use test-mode keys.
+Set the three env vars and deploy. `npm run build` runs `db:migrate` before `next build`, so schema changes apply on every
+deploy. Then follow the owner's guide (setup code from Vercel logs, Admin → Settings).
 
-## Companion (Claude Desktop)
+## Companion (Claude Desktop and the editor)
 
-`companion/` is a separate npm package, `framewright-companion`, that Claude Desktop runs over stdio. It proxies the engine tools using an
-API key and adds `install_engine`, `list_files`, `read_file`, `write_file` (workspace only) and `run_command` / `job_status`.
-Publish it before launch so the `npx -y framewright-companion` setup on `/docs` works:
-
-```bash
-cd companion && npm publish
-```
-
-If the npm name is taken, change `name` in `companion/package.json` and `COMPANION_PACKAGE` in `src/components/connect-guide.tsx`.
+`companion/` is a separate npm package (default name `framewright-companion`; the owner publishes it under their own name and
+enters that name in Admin → Settings → Brand, which updates every command the site shows). It runs as a stdio MCP server
+for Claude Desktop (proxies the site's tools with an API key; adds `install_engine`, `download_file`, workspace file tools,
+`run_command` / `job_status`, `open_editor`) or as the editor bridge (`--editor`). `npm publish` vendors
+`shared/framewright-tools` into `companion/vendor/` first.
 
 ## Editable export (Premiere Pro · DaVinci Resolve · Final Cut Pro)
 
@@ -76,8 +80,7 @@ If the npm name is taken, change `name` in `companion/package.json` and `COMPANI
 - `fw-export.mjs` — added to every engine bundle at `<skill>/framewright/fw-export.mjs`. `validate` / `package` a timeline
   into a folder with `.fcpxml` (Final Cut, Resolve), Premiere XML (Premiere, Resolve), `.srt` captions, `Media/` and a README.
 
-Engines need a way to render one layer with transparency. motion-video-director 3.5.3 (built in `../engine-builds/`) adds
-`render.js --layers <ids> --alpha`; the client's original 3.5.2 folder is unchanged.
+Engines need a way to render one layer with transparency. motion-video-director 3.5.3 adds `render.js --layers <ids> --alpha`.
 
 ## Timeline editor (`/editor`)
 
@@ -102,10 +105,11 @@ talks straight to the Framewright Companion's **editor bridge** on `127.0.0.1` (
 | Tool | What it does | Counts toward limit |
 |---|---|---|
 | `list_engines` | Published engines with tags | no |
-| `start_project` | Picks an engine from the brief (keyword + tag match) and returns `SKILL.md` with a Framewright preamble | **yes** |
+| `start_project` | Picks an engine from the brief (keyword + tag match) and returns `SKILL.md` with a site preamble | **yes** |
 | `get_guide` | Returns one `reference/*.md` file | no |
 | `get_scripts` | Signed bundle URL + install commands | no |
-| `account_status` | Plan, usage, renewal date | no |
+| `generate_image` | fal.ai image with the user's credits (plan model limits, refunds on failure) | credits |
+| `account_status` | Plan, usage, renewal date, credits, allowed models | no |
 
 Every call is logged to `usage_events` for the admin analytics.
 

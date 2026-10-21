@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Bridge, BridgeError, forgetBridge, readBridgeConfig, type BridgeConfig, type Project } from "./bridge";
 import {
   clipDuration,
@@ -29,9 +29,22 @@ import { CaptionStyleNote, ClipInspector, CueInspector, ExportPanel, MediaBin, R
 import { Preview } from "./preview";
 import { TimelineView } from "./timeline-view";
 
-type Gate = { signedIn: boolean; active: boolean };
+export type EditorBrand = { name: string; logo: string | null; companionPackage: string };
+type Gate = { signedIn: boolean; active: boolean; brand: EditorBrand };
 
-export function EditorApp({ signedIn, active }: Gate) {
+const BrandCtx = createContext<EditorBrand>({ name: "", logo: null, companionPackage: "" });
+const useBrand = () => useContext(BrandCtx);
+
+export function EditorApp({ signedIn, active, brand }: Gate) {
+  return (
+    <BrandCtx.Provider value={brand}>
+      <EditorGate signedIn={signedIn} active={active} />
+    </BrandCtx.Provider>
+  );
+}
+
+function EditorGate({ signedIn, active }: { signedIn: boolean; active: boolean }) {
+  const brand = useBrand();
   const [cfg, setCfg] = useState<BridgeConfig | null | undefined>(undefined);
   useEffect(() => {
     // Reads (and removes) the pairing token from the URL fragment on load, and again when a new
@@ -50,7 +63,7 @@ export function EditorApp({ signedIn, active }: Gate) {
     return (
       <Shell>
         <Notice title="Log in to edit">
-          <p>The editor is part of your Framewright subscription.</p>
+          <p>The editor is part of your {brand.name} subscription.</p>
           <Link href="/login?next=/editor" className="btn-primary mt-6">
             Log in
           </Link>
@@ -61,7 +74,7 @@ export function EditorApp({ signedIn, active }: Gate) {
     return (
       <Shell>
         <Notice title="Subscription needed">
-          <p>The timeline editor is included with every Framewright plan.</p>
+          <p>The timeline editor is included with every {brand.name} plan.</p>
           <Link href="/pricing" className="btn-primary mt-6">
             See plans
           </Link>
@@ -73,15 +86,20 @@ export function EditorApp({ signedIn, active }: Gate) {
 }
 
 function Shell({ children, right }: { children?: React.ReactNode; right?: React.ReactNode }) {
+  const brand = useBrand();
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-ink text-paper">
       <div className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-ink-2 px-4">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <svg width="18" height="18" viewBox="0 0 22 22" aria-hidden>
-            <rect x="1" y="1" width="20" height="20" rx="4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M7 6.5v9l8-4.5z" fill="var(--color-ember)" />
-          </svg>
-          <span className="font-display text-xl leading-none">Framewright</span>
+          {brand.logo ? (
+            <img src={brand.logo} alt="" className="h-[18px] w-[18px] rounded object-contain" />
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 22 22" aria-hidden>
+              <rect x="1" y="1" width="20" height="20" rx="4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M7 6.5v9l8-4.5z" fill="var(--color-ember)" />
+            </svg>
+          )}
+          <span className="font-display text-xl leading-none">{brand.name}</span>
         </Link>
         <span className="text-xs text-faint">Editor</span>
         <div className="ml-auto flex items-center gap-2">{right}</div>
@@ -103,21 +121,23 @@ function Notice({ title, children }: { title: string; children: React.ReactNode 
 }
 
 function HowToOpen() {
+  const brand = useBrand();
   return (
     <Notice title="Open a project">
-      <p>The editor works on video projects on your own computer, through the Framewright Companion. Nothing is uploaded.</p>
+      <p>The editor works on video projects on your own computer, through the {brand.name} Companion. Nothing is uploaded.</p>
       <p className="mt-4 text-paper">Claude Code, Cursor and other agents:</p>
       <p className="mt-1">In a terminal, inside your video project folder, run:</p>
-      <pre className="code mt-2">npx -y framewright-companion --editor --site {window.location.origin}</pre>
+      <pre className="code mt-2">npx -y {brand.companionPackage} --editor --site {window.location.origin}</pre>
       <p className="mt-4 text-paper">Claude Desktop:</p>
-      <p className="mt-1">Ask Claude to &ldquo;open the Framewright editor&rdquo;.</p>
-      <p className="mt-4">Either way, the companion opens this page with a private link. If your AI hasn&apos;t prepared the project for editing yet, ask it to &ldquo;make this video editable in the Framewright editor&rdquo;.</p>
+      <p className="mt-1">Ask Claude to &ldquo;open the {brand.name} editor&rdquo;.</p>
+      <p className="mt-4">Either way, the companion opens this page with a private link. If your AI hasn&apos;t prepared the project for editing yet, ask it to &ldquo;make this video editable in the {brand.name} editor&rdquo;.</p>
       <p className="mt-4 text-xs text-faint">Your browser may ask to allow this site to access devices on your local network. Allow it: that&apos;s how the editor reaches the companion on this computer.</p>
     </Notice>
   );
 }
 
 function Connected({ cfg }: { cfg: BridgeConfig }) {
+  const brand = useBrand();
   const bridge = useMemo(() => new Bridge(cfg), [cfg]);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -157,13 +177,13 @@ function Connected({ cfg }: { cfg: BridgeConfig }) {
         </Notice>
       </Shell>
     );
-  if (!projects) return <Shell><Notice title="Connecting…"><p>Talking to the Framewright Companion on this computer.</p></Notice></Shell>;
+  if (!projects) return <Shell><Notice title="Connecting…"><p>Talking to the {brand.name} Companion on this computer.</p></Notice></Shell>;
   if (!projects.length)
     return (
       <Shell>
         <Notice title="No editable projects yet">
           <p>The companion didn&apos;t find a framewright.timeline.json in this folder.</p>
-          <p className="mt-3">Ask your AI to &ldquo;make this video editable in the Framewright editor&rdquo;, then try again.</p>
+          <p className="mt-3">Ask your AI to &ldquo;make this video editable in the {brand.name} editor&rdquo;, then try again.</p>
           <button className="btn-ghost mt-6" onClick={() => setRetry((n) => n + 1)}>
             Look again
           </button>

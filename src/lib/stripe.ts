@@ -3,18 +3,21 @@ import Stripe from "stripe";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { subscriptions, users } from "@/db/schema";
+import { getSettings } from "./settings";
 
-let client: Stripe | null = null;
+let cached: { key: string; client: Stripe } | null = null;
 
-export function stripe(): Stripe {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) throw new Error("STRIPE_SECRET_KEY is not set");
-  return (client ??= new Stripe(key));
+// The key comes from the admin panel, so the client is rebuilt whenever the key changes.
+export async function stripe(): Promise<Stripe> {
+  const key = (await getSettings()).stripe.secretKey;
+  if (!key) throw new Error("Stripe is not connected. Add the secret key in Admin → Settings.");
+  if (cached?.key !== key) cached = { key, client: new Stripe(key) };
+  return cached.client;
 }
 
 export async function ensureCustomer(user: { id: string; email: string; name: string | null; stripeCustomerId: string | null }) {
   if (user.stripeCustomerId) return user.stripeCustomerId;
-  const customer = await stripe().customers.create({
+  const customer = await (await stripe()).customers.create({
     email: user.email,
     name: user.name ?? undefined,
     metadata: { userId: user.id },

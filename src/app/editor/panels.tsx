@@ -312,7 +312,7 @@ export function RequestsPanel({ requests, onDelete }: { requests: EditorRequest[
     <div className="space-y-4 text-xs">
       <div className="rounded-lg border border-line bg-ink p-3 text-muted">
         Your edits are saved straight to the project. To apply these requests (and re-render with your timing edits), tell your AI:
-        <p className="mt-2 rounded bg-ink-3 px-2 py-1.5 font-mono text-paper">Apply my Framewright editor requests</p>
+        <p className="mt-2 rounded bg-ink-3 px-2 py-1.5 font-mono text-paper">Apply my editor requests</p>
       </div>
       {open.length === 0 && <p className="text-faint">No open requests.</p>}
       <ul className="space-y-2">

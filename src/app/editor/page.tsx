@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getCurrentUser } from "@/lib/auth";
 import { getAccess } from "@/lib/access";
+import { getBrand } from "@/lib/settings";
 import { EditorApp } from "./editor";
 
 export const metadata: Metadata = { title: "Editor" };
@@ -10,5 +11,6 @@ export const metadata: Metadata = { title: "Editor" };
 export default async function EditorPage() {
   const user = await getCurrentUser();
   const active = user ? (await getAccess(user)).active : false;
-  return <EditorApp signedIn={Boolean(user)} active={active} />;
+  const b = await getBrand();
+  return <EditorApp signedIn={Boolean(user)} active={active} brand={{ name: b.name, logo: b.logo, companionPackage: b.companionPackage }} />;
 }

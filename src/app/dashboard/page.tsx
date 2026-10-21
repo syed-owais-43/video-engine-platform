@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { and, desc, eq, gt, isNull, max } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, isNull, max } from "drizzle-orm";
 import { db } from "@/db";
-import { apiKeys, engines, oauthClients, oauthTokens, usageEvents } from "@/db/schema";
+import { apiKeys, creditPacks, engines, oauthClients, oauthTokens, usageEvents } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { getAccess } from "@/lib/access";
-import { baseUrl, stripeConfigured } from "@/lib/config";
+import { baseUrl } from "@/lib/config";
+import { getSettings } from "@/lib/settings";
+import { getBalance, recentCredits } from "@/lib/credits";
+import { formatPrice } from "@/lib/stripe-admin";
 import { ConnectGuide } from "@/components/connect-guide";
-import { openBillingPortal } from "./billing-actions";
+import { buyCredits, openBillingPortal } from "./billing-actions";
 import { disconnectApp, revokeApiKey } from "./key-actions";
 import { NewKeyForm } from "./new-key-form";
 
@@ -19,6 +22,7 @@ const BILLING_NOTICES: Record<string, { tone: string; text: string }> = {
   success: { tone: "border-ok/40 text-ok", text: "Payment received. Your subscription will show as active in a few seconds; refresh if needed." },
   unconfigured: { tone: "border-warn/40 text-warn", text: "Payments aren't set up on this site yet." },
   already: { tone: "border-warn/40 text-warn", text: "You already have a subscription. Use Manage billing to change plans." },
+  credits: { tone: "border-ok/40 text-ok", text: "Payment received. Your credits appear in a few seconds; refresh if needed." },
 };
 
 export default async function DashboardPage(props: PageProps<"/dashboard">) {
@@ -26,7 +30,7 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
   const q = await props.searchParams;
   const notice = typeof q.billing === "string" ? BILLING_NOTICES[q.billing] : undefined;
 
-  const [access, keys, apps, activity] = await Promise.all([
+  const [access, keys, apps, activity, balance, packs, history, settings] = await Promise.all([
     getAccess(user),
     db.select().from(apiKeys).where(and(eq(apiKeys.userId, user.id), isNull(apiKeys.revokedAt))).orderBy(desc(apiKeys.createdAt)),
     db
@@ -42,7 +46,17 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
       .where(eq(usageEvents.userId, user.id))
       .orderBy(desc(usageEvents.createdAt))
       .limit(8),
+    getBalance(user),
+    db
+      .select()
+      .from(creditPacks)
+      .where(and(eq(creditPacks.active, true), isNotNull(creditPacks.stripePriceId)))
+      .orderBy(asc(creditPacks.sort), asc(creditPacks.credits)),
+    recentCredits(user.id, 6),
+    getSettings(),
   ]);
+  const imagesOn = settings.images.enabled;
+  const stripeOn = Boolean(settings.stripe.secretKey);
 
   const pct = access.limit ? Math.min(100, Math.round((access.used / access.limit) * 100)) : 0;
 
@@ -79,7 +93,7 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
                   Choose a plan
                 </Link>
               )}
-              {stripeConfigured() && user.stripeCustomerId && (
+              {stripeOn && user.stripeCustomerId && (
                 <form action={openBillingPortal}>
                   <button className="btn-ghost">Manage billing</button>
                 </form>
@@ -181,11 +195,55 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
         </section>
       </div>
 
+      {imagesOn && (
+        <section className="card mt-5">
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div>
+              <p className="label">Image credits</p>
+              <p className="display text-5xl">{balance.total}</p>
+              <p className="mt-1 text-sm text-muted">
+                {balance.monthlyLeft} of {balance.monthlyAllowance} monthly credits left
+                {balance.access.periodEnd ? ` (refills ${fmt(balance.access.periodEnd)})` : ""} · {Math.max(0, balance.topup)} from packs (never expire)
+              </p>
+              {access.plan && !access.plan.commercialUse && <p className="mt-1 text-xs text-warn">Your plan allows personal use only.</p>}
+            </div>
+            {stripeOn && packs.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {packs.map((p) => (
+                  <form key={p.id} action={buyCredits}>
+                    <input type="hidden" name="packId" value={p.id} />
+                    <button className="btn-ghost !py-2 !text-xs">
+                      +{p.credits} credits · {formatPrice(p.priceCents, p.currency, false)}
+                    </button>
+                  </form>
+                ))}
+              </div>
+            )}
+          </div>
+          {history.length > 0 && (
+            <ul className="mt-5 divide-y divide-line/60 border-t border-line text-xs">
+              {history.map((h) => (
+                <li key={h.id} className="flex justify-between gap-4 py-2">
+                  <span className="truncate text-muted">
+                    {h.reason === "image" ? "Image" : h.reason === "purchase" ? "Bought" : h.reason === "refund" ? "Refund" : "Adjustment"}
+                    {h.detail ? ` · ${h.detail}` : ""}
+                  </span>
+                  <span className={`shrink-0 tabular-nums ${h.delta > 0 ? "text-ok" : "text-muted"}`}>
+                    {h.delta > 0 ? "+" : ""}
+                    {h.delta} · {fmt(h.createdAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       <section className="card mt-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="label">Timeline editor</p>
           <p className="text-sm text-muted">
-            Edit your videos in the browser. Run <code className="font-mono text-paper">npx -y framewright-companion --editor --site {baseUrl()}</code> in a project
+            Edit your videos in the browser. Run <code className="font-mono text-paper">npx -y {settings.brand.companionPackage} --editor --site {baseUrl()}</code> in a project
             folder, or ask Claude Desktop to open the editor.
           </p>
         </div>

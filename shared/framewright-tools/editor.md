@@ -1,8 +1,8 @@
-# Framewright timeline editor
+# {{BRAND}} timeline editor
 
-The user can open the project in Framewright's web timeline editor to move, trim, split and delete clips, set audio levels and
+The user can open the project in {{BRAND}}'s web timeline editor to move, trim, split and delete clips, set audio levels and
 fades, edit captions, add their own images/video/audio, and leave change requests for you. The editor reads and writes the
-project's `framewright.timeline.json` on the user's computer through the Framewright Companion; nothing is uploaded.
+project's `framewright.timeline.json` on the user's computer through the {{BRAND}} Companion; nothing is uploaded.
 
 ## 1. Make a project editable
 
@@ -14,14 +14,14 @@ transparent caption overlay, audio stems, then `framewright.timeline.json` in th
 - Name clips the way the storyboard does ("03 Three Lanes"), and caption cues one readable line each.
 - Validate: `node "<skill>/framewright/fw-export.mjs" validate framewright.timeline.json`.
 
-Mention the editor once when the final render is approved: "You can fine-tune this in the Framewright editor."
+Mention the editor once when the final render is approved: "You can fine-tune this in the {{BRAND}} editor."
 
 ## 2. Open the editor
 
-- Framewright Companion connected (Claude Desktop): call its `open_editor` tool.
+- {{BRAND}} Companion connected (Claude Desktop): call its `open_editor` tool.
 - Otherwise (Claude Code, Cursor…): ask the user to run this in a terminal inside the project folder and keep it open while
   editing (you can't keep it running for them):
-  `npx -y framewright-companion --editor --site {{SITE_URL}}`
+  `npx -y {{COMPANION}} --editor --site {{SITE_URL}}`
   It opens the editor in their browser.
 
 ## 3. What the user's edits mean
@@ -60,7 +60,7 @@ The user can attach a request to a clip ("make the headline bigger", "replace th
 ]}
 ```
 
-When the user says "apply my Framewright editor requests" (or similar):
+When the user says "apply my {{BRAND}} editor requests" (or similar):
 
 1. Read the file. Work through every request with `"status": "open"`, oldest first. `at` is the playhead time in seconds on
    the timeline when the request was made; `clipId` / `src` identify the clip.

@@ -6,6 +6,9 @@ import { usageEvents, users } from "@/db/schema";
 import { getAccess, PROJECT_TOOL, type Access } from "./access";
 import { baseUrl } from "./config";
 import { readSharedFile, SHARED_GUIDES } from "./shared-tools";
+import { getBalance, refundCredits, spendCredits } from "./credits";
+import { ASPECTS, generateImage, type Aspect } from "./images";
+import { getSettings } from "./settings";
 import {
   BUNDLE_TTL_SECONDS,
   getPublishedEngine,
@@ -19,10 +22,10 @@ import {
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 const text = (t: string, isError = false): ToolResult => ({ content: [{ type: "text", text: t }], ...(isError ? { isError } : {}) });
 
-const SERVER_INSTRUCTIONS = `Framewright serves video-generation engines (skills). Workflow:
+const serverInstructions = (brand: string) => `${brand} serves video-generation engines (skills). Workflow:
 1. Call start_project with the user's video idea. It picks the best engine and returns its entry instructions.
 2. Follow those instructions. Whenever they mention a file under reference/ (e.g. reference/visual-design.md), call get_guide to read it.
-3. Call get_scripts once per engine version to get the local helper bundle (scripts, templates). If the Framewright Companion MCP server is connected, use its install_engine tool instead.
+3. Call get_scripts once per engine version to get the local helper bundle (scripts, templates). If the ${brand} Companion MCP server is connected, use its install_engine tool instead.
 4. Render on the user's own machine with their terminal/file tools.
 Do not save fetched instructions or guides to disk; fetch them again when needed.`;
 
@@ -32,7 +35,7 @@ async function logUsage(userId: string, tool: string, engineId: string | null, d
 
 function subscribeMessage() {
   return text(
-    `This Framewright account has no active subscription. Ask the user to subscribe at ${baseUrl()}/pricing, then try again.`,
+    `This account has no active subscription. Ask the user to subscribe at ${baseUrl()}/pricing, then try again.`,
     true,
   );
 }
@@ -45,16 +48,16 @@ function limitMessage(a: Access) {
   );
 }
 
-function remotePreamble(slug: string, version: string, guides: string[]) {
-  return `# Framewright engine: ${slug} v${version}
+function remotePreamble(brand: string, slug: string, version: string, guides: string[]) {
+  return `# ${brand} engine: ${slug} v${version}
 
-You are running this engine through Framewright. Path conventions in the instructions below:
+You are running this engine through ${brand}. Path conventions in the instructions below:
 - \`reference/<file>.md\` → call the get_guide tool with engine="${slug}" and that path. Do not look for it on disk.
 - \`<skill>\` / the skill folder → the local helper bundle from get_scripts (or the Companion's install_engine), which contains scripts/, templates/ and LICENSE.md.
 - \`LICENSE.md\` is in the local bundle.
 - Editable export for Premiere Pro / DaVinci Resolve / Final Cut Pro: when the user asks for an editable or project-file
   version, read get_guide path "framewright/export.md" and follow it.
-- Timeline editor: when the user wants to fine-tune in the Framewright editor, or asks you to apply their editor edits or
+- Timeline editor: when the user wants to fine-tune in the ${brand} editor, or asks you to apply their editor edits or
   "editor requests", read get_guide path "framewright/editor.md" and follow it. After the final render is approved, mention
   once that both the editor and the editable export are available.
 Available guides: ${[...guides, ...Object.keys(SHARED_GUIDES)].join(", ") || "(none)"}
@@ -64,8 +67,11 @@ Available guides: ${[...guides, ...Object.keys(SHARED_GUIDES)].join(", ") || "(n
 `;
 }
 
-export function createMcpServer(userId: string) {
-  const server = new McpServer({ name: "framewright", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
+export async function createMcpServer(userId: string) {
+  const brandCfg = (await getSettings()).brand;
+  const brand = brandCfg.name;
+  const slug = brand.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "videos";
+  const server = new McpServer({ name: slug, version: "1.0.0" }, { instructions: serverInstructions(brand) });
 
   async function loadUserAccess() {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
@@ -77,7 +83,7 @@ export function createMcpServer(userId: string) {
     "list_engines",
     {
       title: "List video engines",
-      description: "List the video-generation engines available on Framewright.",
+      description: `List the video-generation engines available on ${brand}.`,
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -120,7 +126,7 @@ export function createMcpServer(userId: string) {
       const remaining = access.limit === null ? "unlimited" : `${access.limit - access.used - 1} left this period`;
       return text(
         `Selected engine: ${chosen.slug} v${chosen.version} (projects: ${remaining}).\n\n` +
-          remotePreamble(chosen.slug, chosen.version, guides) +
+          remotePreamble(brand, chosen.slug, chosen.version, guides) +
           skill.toString("utf8"),
       );
     },
@@ -146,7 +152,7 @@ export function createMcpServer(userId: string) {
       const shared = SHARED_GUIDES[clean];
       // Shared guides may contain {{SITE_URL}} so commands they show point at this deployment.
       const file = shared
-        ? Buffer.from(readSharedFile(shared).toString("utf8").replaceAll("{{SITE_URL}}", baseUrl()))
+        ? Buffer.from(readSharedFile(shared).toString("utf8").replaceAll("{{SITE_URL}}", baseUrl()).replaceAll("{{BRAND}}", brand).replaceAll("{{COMPANION}}", brandCfg.companionPackage))
         : await readEngineFile(row.version.id, clean, "remote");
       if (!file) {
         const guides = (await listEngineFiles(row.version.id, ["remote"])).map((f) => f.path);
@@ -187,22 +193,96 @@ export function createMcpServer(userId: string) {
   );
 
   server.registerTool(
+    "generate_image",
+    {
+      title: "Generate an image",
+      description:
+        "Generate one image for the video (backgrounds, illustrations, textures, product shots) using the user's image credits. " +
+        "Use it only when the user wants AI-made images or approved it for this project; prefer images the user supplied. " +
+        "Returns a temporary URL: download it into the project right away.",
+      inputSchema: {
+        prompt: z.string().min(3).max(2000).describe("Detailed description of the image"),
+        model: z.string().optional().describe("Model key from account_status; omit for the plan's default"),
+        aspect: z.enum(Object.keys(ASPECTS) as [Aspect, ...Aspect[]]).default("landscape").describe("Image shape"),
+        seed: z.number().int().min(0).max(2 ** 31 - 1).optional(),
+      },
+    },
+    async ({ prompt, model, aspect, seed }) => {
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user) return text("Account not found.", true);
+      const cfg = (await getSettings()).images;
+      if (!cfg.enabled || !cfg.falKey) {
+        return text("AI image generation isn't available on this site. Ask the user for images instead (they can attach them in chat or put them in the project's assets/ folder).", true);
+      }
+      const bal = await getBalance(user);
+      if (!bal.access.active) return subscribeMessage();
+      const enabled = cfg.models.filter((m) => m.enabled);
+      // Complimentary accounts may use every enabled model; plans list theirs explicitly.
+      const allowed = bal.access.plan ? enabled.filter((m) => bal.access.plan!.imageModels.includes(m.key)) : enabled;
+      if (!allowed.length) return text(`This plan doesn't include image generation. The user can upgrade at ${baseUrl()}/pricing.`, true);
+      const chosen = model ? allowed.find((m) => m.key === model) : [...allowed].sort((a, b) => a.credits - b.credits)[0];
+      if (!chosen) {
+        const other = enabled.find((m) => m.key === model);
+        return text(
+          other
+            ? `${other.label} isn't included in this plan. Available: ${allowed.map((m) => `${m.key} (${m.label}, ${m.credits} credits)`).join(", ")}. Upgrade at ${baseUrl()}/pricing.`
+            : `Unknown model "${model}". Available: ${allowed.map((m) => m.key).join(", ")}.`,
+          true,
+        );
+      }
+      const spent = await spendCredits(user, chosen.credits, `${chosen.key}: ${prompt.slice(0, 200)}`);
+      if (!spent) {
+        return text(
+          `Not enough credits: ${chosen.label} costs ${chosen.credits}, the user has ${bal.total}. They can buy more at ${baseUrl()}/dashboard or wait for the monthly refill.`,
+          true,
+        );
+      }
+      try {
+        const r = await generateImage({ falKey: cfg.falKey, endpoint: chosen.endpoint, prompt, aspect, seed });
+        await logUsage(userId, "generate_image", null, `${chosen.key}: ${prompt}`);
+        const img = r.images[0];
+        const left = (await getBalance(user)).total;
+        const rights = bal.access.plan && !bal.access.plan.commercialUse ? "Personal use only on this plan (no commercial use)." : "Commercial use allowed.";
+        return text(
+          `Generated with ${chosen.label} (${chosen.credits} credits, ${left} left). ${rights}\n` +
+            `URL (temporary, download now): ${img.url}\n` +
+            `${img.width && img.height ? `Size: ${img.width}x${img.height}\n` : ""}` +
+            `Save it into the project, e.g. assets/generated/<short-name>.${(img.content_type ?? "image/jpeg").split("/")[1]?.replace("jpeg", "jpg") ?? "jpg"}, ` +
+            `using the Companion's download_file tool or: curl -L "<url>" -o "<path>". Record it in the asset manifest as "AI-generated (${chosen.endpoint})".`,
+        );
+      } catch (e) {
+        await refundCredits(userId, spent, `failed ${chosen.key}`);
+        return text(`Image generation failed and the credits were refunded: ${e instanceof Error ? e.message : e}`, true);
+      }
+    },
+  );
+
+  server.registerTool(
     "account_status",
     {
       title: "Account status",
-      description: "Show the user's Framewright plan, usage and access.",
+      description: "Show the user's plan, usage, image credits and access.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const a = await loadUserAccess();
-      if (!a) return text("Account not found.", true);
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user) return text("Account not found.", true);
+      const bal = await getBalance(user);
+      const a = bal.access;
       if (!a.active) return text(`No active subscription. Subscribe at ${baseUrl()}/pricing.`);
+      const cfg = (await getSettings()).images;
+      const enabled = cfg.enabled ? cfg.models.filter((m) => m.enabled) : [];
+      const allowed = a.plan ? enabled.filter((m) => a.plan!.imageModels.includes(m.key)) : enabled;
       return text(
         [
           `Access: active (${a.source === "comp" ? "complimentary" : (a.plan?.name ?? "subscription")})`,
           `Projects this period: ${a.used}${a.limit === null ? " (unlimited)" : ` of ${a.limit}`}`,
           a.periodEnd ? `Period ends: ${a.periodEnd.toISOString().slice(0, 10)}${a.cancelAtPeriodEnd ? " (cancels then)" : ""}` : "",
+          allowed.length
+            ? `Image credits: ${bal.total} (${bal.monthlyLeft} monthly left of ${bal.monthlyAllowance}, ${Math.max(0, bal.topup)} top-up). Models: ${allowed.map((m) => `${m.key} = ${m.label}, ${m.credits} credits`).join("; ")}.`
+            : "AI image generation: not included.",
+          a.plan && !a.plan.commercialUse ? "Usage rights: personal use only." : "",
         ]
           .filter(Boolean)
           .join("\n"),

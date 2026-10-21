@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { plans, subscriptions, usageEvents, type Plan, type User } from "@/db/schema";
 
@@ -17,6 +17,15 @@ export type Access = {
   status: string | null;
 };
 
+// A plan matches its current Stripe price or any earlier one (subscribers keep old prices).
+export function planForPrice(priceId: string) {
+  return db
+    .select()
+    .from(plans)
+    .where(or(eq(plans.stripePriceId, priceId), sql`${plans.legacyPriceIds} @> ${JSON.stringify([priceId])}::jsonb`))
+    .limit(1);
+}
+
 function monthStart() {
   const d = new Date();
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
@@ -30,7 +39,7 @@ export async function getAccess(user: Pick<User, "id" | "compAccess">): Promise<
     .orderBy(desc(subscriptions.updatedAt))
     .limit(1);
   const subActive = !!sub && ACTIVE_STATUSES.includes(sub.status);
-  const [plan] = subActive ? await db.select().from(plans).where(eq(plans.stripePriceId, sub.priceId)) : [];
+  const [plan] = subActive ? await planForPrice(sub.priceId) : [];
 
   const periodStart = (subActive && sub.currentPeriodStart) || monthStart();
   const [{ n }] = await db

@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-@theme inline {
+/* Colours are real CSS variables (not inlined) so the admin-chosen accent can override --color-ember. */
+@theme {
   --color-ink: #0e0d0b;
   --color-ink-2: #171512;
   --color-ink-3: #211e1a;
@@ -9,10 +10,12 @@
   --color-muted: #a39b8c;
   --color-faint: #6f685c;
   --color-ember: #ff6a2b;
-  --color-ember-dim: #c74d18;
   --color-ok: #7fc48a;
   --color-warn: #e8b85a;
   --color-bad: #e2685a;
+}
+
+@theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-display: var(--font-instrument-serif);

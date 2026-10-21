@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { oauthClients } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 import { getAccess } from "@/lib/access";
+import { getBrand } from "@/lib/settings";
 
 export const metadata: Metadata = { title: "Authorize app" };
 
@@ -24,7 +25,7 @@ export default async function AuthorizePage(props: PageProps<"/oauth/authorize">
   const raw = await props.searchParams;
   const p = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === "string" ? v : ""]));
 
-  const user = await getCurrentUser();
+  const [user, brand] = await Promise.all([getCurrentUser(), getBrand()]);
   if (!user) {
     const here = `/oauth/authorize?${new URLSearchParams(p)}`;
     redirect(`/login?next=${encodeURIComponent(here)}`);
@@ -35,7 +36,7 @@ export default async function AuthorizePage(props: PageProps<"/oauth/authorize">
     return <ErrorCard message="This app must use PKCE (S256). Please update your MCP client." />;
   }
   const [client] = p.client_id ? await db.select().from(oauthClients).where(eq(oauthClients.clientId, p.client_id)) : [];
-  if (!client) return <ErrorCard message="Unknown app. Remove and re-add the Framewright server in your AI app." />;
+  if (!client) return <ErrorCard message="Unknown app. Remove and re-add this server in your AI app." />;
   if (!client.redirectUris.includes(p.redirect_uri)) return <ErrorCard message="Redirect address doesn't match this app's registration." />;
 
   const access = await getAccess(user);
@@ -52,7 +53,7 @@ export default async function AuthorizePage(props: PageProps<"/oauth/authorize">
       <div className="card">
         <p className="eyebrow">Connect app</p>
         <h1 className="display mt-3 text-4xl">
-          Allow <span className="text-ember">{client.name}</span> to use Framewright?
+          Allow <span className="text-ember">{client.name}</span> to use {brand.name}?
         </h1>
         <p className="mt-4 text-sm text-muted">
           It will be able to list engines, start projects on your plan and read engine guides as <span className="text-paper">{user.email}</span>.

@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { createSession, safeNext } from "@/lib/auth";
 import { adminEmails, baseUrl } from "@/lib/config";
+import { getSettings } from "@/lib/settings";
 
 type GoogleUser = { sub: string; email: string; email_verified: boolean; name?: string };
 
@@ -20,13 +21,14 @@ export async function GET(req: Request) {
     return Response.redirect(`${baseUrl()}/login?error=google`, 302);
   }
 
+  const google = (await getSettings()).google;
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      client_id: google.clientId,
+      client_secret: google.clientSecret,
       redirect_uri: `${baseUrl()}/api/auth/google/callback`,
       grant_type: "authorization_code",
     }),

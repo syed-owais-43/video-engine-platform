@@ -1,7 +1,7 @@
-# Framewright editable export (Premiere Pro · DaVinci Resolve · Final Cut Pro)
+# {{BRAND}} editable export (Premiere Pro · DaVinci Resolve · Final Cut Pro)
 
 Use this when the user wants to edit the video in their own editing software, or asks for an "editable", "project file",
-"XML", "FCPXML" or "Premiere/Resolve/Final Cut" version. It works for every Framewright engine. The final MP4 stays the main
+"XML", "FCPXML" or "Premiere/Resolve/Final Cut" version. It works for every {{BRAND}} engine. The final MP4 stays the main
 deliverable; the edit package is an extra.
 
 The result is a folder the user opens in their editor with:

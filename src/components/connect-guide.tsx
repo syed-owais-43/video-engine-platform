@@ -1,21 +1,24 @@
 import { baseUrl } from "@/lib/config";
+import { getBrand } from "@/lib/settings";
 import { CopyBlock } from "./copy-block";
 
-export const COMPANION_PACKAGE = "framewright-companion";
-
-export function ConnectGuide({ apiKey }: { apiKey?: string }) {
+export async function ConnectGuide({ apiKey }: { apiKey?: string }) {
+  const brand = await getBrand();
+  const pkg = brand.companionPackage;
+  // The name the MCP server gets in the user's AI app, derived from the site name.
+  const server = brand.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "videos";
   const url = `${baseUrl()}/api/mcp`;
   const key = apiKey ?? "fw_YOUR_API_KEY";
   const desktopConfig = JSON.stringify(
     {
       mcpServers: {
-        framewright: {
+        [server]: {
           command: "npx",
-          args: ["-y", COMPANION_PACKAGE],
+          args: ["-y", pkg],
           env: {
             FRAMEWRIGHT_URL: baseUrl(),
             FRAMEWRIGHT_API_KEY: key,
-            FRAMEWRIGHT_WORKSPACE: "C:\\Users\\you\\Videos\\Framewright",
+            FRAMEWRIGHT_WORKSPACE: "C:\\Users\\you\\Videos\\" + (brand.name.replace(/[^\w -]/g, "") || "Videos"),
           },
         },
       },
@@ -23,8 +26,8 @@ export function ConnectGuide({ apiKey }: { apiKey?: string }) {
     null,
     2,
   );
-  const cursorConfig = JSON.stringify({ mcpServers: { framewright: { url } } }, null, 2);
-  const cursorKeyConfig = JSON.stringify({ mcpServers: { framewright: { url, headers: { Authorization: `Bearer ${key}` } } } }, null, 2);
+  const cursorConfig = JSON.stringify({ mcpServers: { [server]: { url } } }, null, 2);
+  const cursorKeyConfig = JSON.stringify({ mcpServers: { [server]: { url, headers: { Authorization: `Bearer ${key}` } } } }, null, 2);
 
   return (
     <div className="space-y-6">
@@ -37,10 +40,10 @@ export function ConnectGuide({ apiKey }: { apiKey?: string }) {
           Run this once, then type <code className="font-mono text-paper">/mcp</code> inside Claude Code and choose <em>Authenticate</em> to sign in.
         </p>
         <div className="mt-4 space-y-3">
-          <CopyBlock label="Sign in with your account (recommended)" code={`claude mcp add --transport http --scope user framewright ${url}`} />
+          <CopyBlock label="Sign in with your account (recommended)" code={`claude mcp add --transport http --scope user ${server} ${url}`} />
           <CopyBlock
             label="Or use an API key"
-            code={`claude mcp add --transport http --scope user framewright ${url} --header "Authorization: Bearer ${key}"`}
+            code={`claude mcp add --transport http --scope user ${server} ${url} --header "Authorization: Bearer ${key}"`}
           />
         </div>
       </section>
@@ -66,7 +69,7 @@ export function ConnectGuide({ apiKey }: { apiKey?: string }) {
           <span className="pill border-warn/40 text-warn">needs the Companion</span>
         </div>
         <p className="mt-2 text-sm text-muted">
-          Claude Desktop chat can&apos;t run commands on its own. The Framewright Companion is a small local MCP server that connects to your
+          Claude Desktop chat can&apos;t run commands on its own. The {brand.name} Companion is a small local MCP server that connects to your
           account and gives Claude a workspace folder to render in. Its file tools only work inside that folder, and commands start there.
           Needs Node.js 20+.
         </p>
@@ -83,7 +86,7 @@ export function ConnectGuide({ apiKey }: { apiKey?: string }) {
       <section className="card">
         <h3 className="display text-3xl">Then just ask</h3>
         <CopyBlock
-          code={`Use Framewright to make a 15-second 9:16 kinetic typography teaser for my podcast "Late Signals". Dark, grainy, orange accents. Reference: ./refs/style.mp4`}
+          code={`Use ${brand.name} to make a 15-second 9:16 kinetic typography teaser for my podcast "Late Signals". Dark, grainy, orange accents. Reference: ./refs/style.mp4`}
         />
         <p className="mt-3 text-sm text-muted">
           Your AI checks your machine for Node, Python and FFmpeg first and asks before installing anything.
@@ -94,12 +97,12 @@ export function ConnectGuide({ apiKey }: { apiKey?: string }) {
         <h3 className="display text-3xl">Fine-tune in the editor</h3>
         <p className="mt-2 text-sm text-muted">
           Move, trim and split clips, set levels, fix captions, drop in your own media, and leave change requests for your AI, all in
-          the browser while the files stay on your computer. Ask your AI to <em>make this video editable in the Framewright
-          editor</em>, then open it:
+          the browser while the files stay on your computer. Ask your AI to <em>make this video editable in the {brand.name} editor</em>,
+          then open it:
         </p>
         <div className="mt-4 space-y-3">
-          <CopyBlock label="Claude Code, Cursor and others: run inside the project folder" code={`npx -y framewright-companion --editor --site ${baseUrl()}`} />
-          <p className="text-sm text-muted">Claude Desktop: ask Claude to &ldquo;open the Framewright editor&rdquo;.</p>
+          <CopyBlock label="Claude Code, Cursor and others: run inside the project folder" code={`npx -y ${pkg} --editor --site ${baseUrl()}`} />
+          <p className="text-sm text-muted">Claude Desktop: ask Claude to &ldquo;open the {brand.name} editor&rdquo;.</p>
         </div>
       </section>
     </div>

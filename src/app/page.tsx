@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { listPublishedEngines } from "@/lib/engines";
+import { getBrand } from "@/lib/settings";
+import { adminExists } from "@/lib/setup";
 
-const steps = [
+const steps = (name: string) => [
   {
     n: "01",
     title: "Connect your AI",
-    body: "Add Framewright as an MCP server in Claude Code, Claude Desktop or Cursor. Sign in once, and you're connected.",
+    body: `Add ${name} as an MCP server in Claude Code, Claude Desktop or Cursor. Sign in once, and you're connected.`,
   },
   {
     n: "02",
@@ -19,14 +22,14 @@ const steps = [
   },
 ];
 
-const faqs = [
+const faqs = (name: string) => [
   {
     q: "Where does the video get rendered?",
-    a: "On your own computer. Framewright serves the engine's instructions to your AI; rendering uses your machine's Node.js, Python and FFmpeg. We never see your footage or references.",
+    a: `On your own computer. ${name} serves the engine's instructions to your AI; rendering uses your machine's Node.js, Python and FFmpeg. We never see your footage or references.`,
   },
   {
     q: "Which AI apps work?",
-    a: "Any MCP-capable agent with file and terminal access: Claude Code, Cursor, Windsurf and similar. Claude Desktop works with the free Framewright Companion, which gives it a sandboxed workspace folder to render in.",
+    a: `Any MCP-capable agent with file and terminal access: Claude Code, Cursor, Windsurf and similar. Claude Desktop works with the free ${name} Companion, which gives it a sandboxed workspace folder to render in.`,
   },
   {
     q: "What do I need installed?",
@@ -34,7 +37,7 @@ const faqs = [
   },
   {
     q: "Can I edit the video myself?",
-    a: "Yes. Open it in the Framewright timeline editor in your browser to move, trim and split scenes, balance voice, music and sound effects, fix captions and add your own images or clips. Export a new MP4 in seconds, or leave notes for your AI to change something inside a scene. Your files stay on your computer.",
+    a: `Yes. Open it in the ${name} timeline editor in your browser to move, trim and split scenes, balance voice, music and sound effects, fix captions and add your own images or clips. Export a new MP4 in seconds, or leave notes for your AI to change something inside a scene. Your files stay on your computer.`,
   },
   {
     q: "Can I keep editing in Premiere, Resolve or Final Cut?",
@@ -51,7 +54,10 @@ const faqs = [
 ];
 
 export default async function Home() {
-  const engines = await listPublishedEngines();
+  // A fresh install has no admin yet: send the owner to first-run setup.
+  if (!(await adminExists())) redirect("/setup");
+  const [engines, brand] = await Promise.all([listPublishedEngines(), getBrand()]);
+  const name = brand.name;
   return (
     <>
       <section className="relative overflow-hidden border-b border-line/70">
@@ -72,7 +78,7 @@ export default async function Home() {
               <em className="text-ember">Your AI</em> directs it.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted">
-              Framewright gives Claude, Cursor and other agents a professional motion-design engine. Describe a video, and your AI plans,
+              {name} gives Claude, Cursor and other agents a professional motion-design engine. Describe a video, and your AI plans,
               animates, voices and sound-designs it, then renders it on your own machine.
             </p>
             <div className="mt-9 flex flex-wrap gap-3">
@@ -114,7 +120,7 @@ export default async function Home() {
       <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
         <p className="eyebrow">How it works</p>
         <div className="mt-8 grid gap-px overflow-hidden rounded-2xl border border-line bg-line md:grid-cols-3">
-          {steps.map((s) => (
+          {steps(name).map((s) => (
             <div key={s.n} className="bg-ink-2 p-7">
               <p className="font-mono text-sm text-ember">{s.n}</p>
               <h3 className="display mt-4 text-3xl">{s.title}</h3>
@@ -172,7 +178,7 @@ export default async function Home() {
             </Link>
           </div>
           <dl className="divide-y divide-line border-y border-line">
-            {faqs.map((f) => (
+            {faqs(name).map((f) => (
               <div key={f.q} className="py-6">
                 <dt className="text-lg">{f.q}</dt>
                 <dd className="mt-2 text-sm leading-relaxed text-muted">{f.a}</dd>

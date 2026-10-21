@@ -34,13 +34,63 @@ export const plans = pgTable("plans", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
-  stripePriceId: text("stripe_price_id").notNull().unique(),
+  // Monthly price; the admin panel creates the matching Stripe product/price from it.
+  priceCents: integer("price_cents").notNull().default(0),
+  currency: text("currency").notNull().default("usd"),
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id").unique(),
+  // Earlier Stripe prices of this plan; existing subscribers stay on them after a price change.
+  legacyPriceIds: jsonb("legacy_price_ids").$type<string[]>().notNull().default([]),
   priceLabel: text("price_label").notNull(), // e.g. "$29 / month"
   // Max projects started per billing period; null means unlimited.
   monthlyProjects: integer("monthly_projects"),
+  // Image credits granted each billing period, and which image models the plan may use.
+  monthlyCredits: integer("monthly_credits").notNull().default(0),
+  imageModels: jsonb("image_models").$type<string[]>().notNull().default([]),
+  commercialUse: boolean("commercial_use").notNull().default(true),
   features: jsonb("features").$type<string[]>().notNull().default([]),
   active: boolean("active").notNull().default(true),
   sort: integer("sort").notNull().default(0),
+});
+
+// One-off credit purchases that never expire.
+export const creditPacks = pgTable("credit_packs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  credits: integer("credits").notNull(),
+  priceCents: integer("price_cents").notNull(),
+  currency: text("currency").notNull().default("usd"),
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id").unique(),
+  active: boolean("active").notNull().default(true),
+  sort: integer("sort").notNull().default(0),
+});
+
+// Every credit movement. Monthly credits are the plan allowance minus spends in the current period;
+// top-up credits are the running sum of purchases, spends and adjustments in the "topup" bucket.
+export const creditLedger = pgTable(
+  "credit_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    bucket: text("bucket", { enum: ["monthly", "topup"] }).notNull(),
+    delta: integer("delta").notNull(),
+    reason: text("reason", { enum: ["image", "refund", "purchase", "admin"] }).notNull(),
+    // Billing period the entry belongs to (monthly bucket only).
+    periodStart: timestamp("period_start", { withTimezone: true }),
+    // Idempotency key, e.g. a Stripe checkout session id.
+    ref: text("ref").unique(),
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("credit_ledger_user_idx").on(t.userId, t.createdAt)],
+);
+
+// Admin-managed configuration (brand, Stripe, Google, image generation). Values are encrypted.
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const subscriptions = pgTable(
@@ -150,4 +200,5 @@ export const usageEvents = pgTable(
 
 export type User = typeof users.$inferSelect;
 export type Plan = typeof plans.$inferSelect;
+export type CreditPack = typeof creditPacks.$inferSelect;
 export type Engine = typeof engines.$inferSelect;
