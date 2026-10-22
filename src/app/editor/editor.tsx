@@ -5,8 +5,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Bridge, BridgeError, forgetBridge, readBridgeConfig, type BridgeConfig, type Project } from "./bridge";
 import {
   clipDuration,
+  clipEnd,
   clipIn,
   findClip,
+  formatLabel,
   formatTime,
   newId,
   overlaps,
@@ -24,9 +26,11 @@ import {
   type Selection,
   type Timeline,
   type Track,
+  type TrackFilter,
 } from "./model";
 import { CaptionStyleNote, ClipInspector, CueInspector, ExportPanel, MediaBin, RequestsPanel } from "./panels";
 import { Preview } from "./preview";
+import { ScenePanel } from "./scene-panel";
 import { TimelineView } from "./timeline-view";
 
 export type EditorBrand = { name: string; logo: string | null; companionPackage: string };
@@ -214,6 +218,12 @@ function Connected({ cfg }: { cfg: BridgeConfig }) {
 type SaveState = "saved" | "saving" | "unsaved" | "error";
 type Side = "inspect" | "media" | "requests" | "export";
 const AUDIO_EXT = /\.(wav|mp3|m4a|aac|ogg|flac)$/i;
+const FILTERS: { kind: TrackFilter; icon: string; label: string }[] = [
+  { kind: "scenes", icon: "◧", label: "Scenes" },
+  { kind: "captions", icon: "T", label: "Captions" },
+  { kind: "audio", icon: "♪", label: "Audio" },
+  { kind: "media", icon: "▦", label: "Your media" },
+];
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp)$/i;
 
 function ProjectEditor({ bridge, project, onClose }: { bridge: Bridge; project: string; onClose?: () => void }) {
@@ -231,6 +241,8 @@ function ProjectEditor({ bridge, project, onClose }: { bridge: Bridge; project: 
   const [problems, setProblems] = useState<string[] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [mediaRefresh, setMediaRefresh] = useState(0);
+  const [guides, setGuides] = useState(true);
+  const [hidden, setHidden] = useState<Set<TrackFilter>>(new Set());
   const [history, setHistory] = useState<{ past: Timeline[]; future: Timeline[] }>({ past: [], future: [] });
   const mtime = useRef(0);
   const dirty = useRef(false);
@@ -272,6 +284,18 @@ function ProjectEditor({ bridge, project, onClose }: { bridge: Bridge; project: 
   }, [load]);
 
   const duration = useMemo(() => (tl ? timelineDuration(tl, media) : 0), [tl, media]);
+
+  // After a scene re-render the clip file changed in place: refresh file info (and so the preview).
+  const refreshMedia = useCallback(async () => {
+    try {
+      const r = await bridge.project(project);
+      setMedia((m) => ({ ...m, ...r.media }));
+      setMediaRefresh((n) => n + 1);
+      flash("Scene re-rendered.");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Couldn't reload the scene");
+    }
+  }, [bridge, project, flash]);
 
   // ----- editing with undo -----
   const apply = useCallback(
@@ -495,6 +519,10 @@ function ProjectEditor({ bridge, project, onClose }: { bridge: Bridge; project: 
   if (!tl) return <Shell><Notice title="Loading…"><p>Reading the project from your computer.</p></Notice></Shell>;
 
   const sel = findClip(tl, selection);
+  // The topmost visible scene under the playhead, for the preview badge.
+  const current = [...tl.tracks]
+    .reverse()
+    .flatMap((t) => (t.kind === "video" && !t.muted ? t.clips.filter((c) => !c.muted && time >= c.start && time < clipEnd(c, media)) : []))[0];
   const cap = tl.tracks.find((t): t is CaptionTrack => t.kind === "captions");
   const openRequests = requests.filter((r) => r.status !== "done").length;
   const saveLabel = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved", error: "Not saved" }[saveState];
@@ -546,6 +574,29 @@ function ProjectEditor({ bridge, project, onClose }: { bridge: Bridge; project: 
       )}
 
       <div className="flex min-h-0 flex-1">
+        <nav className="flex w-12 shrink-0 flex-col items-center gap-1.5 border-r border-line bg-ink-2 pt-3" aria-label="Show tracks on the timeline">
+          {FILTERS.map((f) => {
+            const on = !hidden.has(f.kind);
+            return (
+              <button
+                key={f.kind}
+                title={`${on ? "Hide" : "Show"} ${f.label.toLowerCase()} on the timeline`}
+                aria-pressed={on}
+                onClick={() =>
+                  setHidden((h) => {
+                    const next = new Set(h);
+                    if (on) next.add(f.kind);
+                    else next.delete(f.kind);
+                    return next;
+                  })
+                }
+                className={`grid h-9 w-9 place-items-center rounded-lg text-base ${on ? "bg-ink-3 text-ember" : "text-faint hover:text-muted"}`}
+              >
+                {f.icon}
+              </button>
+            );
+          })}
+        </nav>
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 items-center justify-center p-4">
             <Preview
@@ -558,6 +609,8 @@ function ProjectEditor({ bridge, project, onClose }: { bridge: Bridge; project: 
               playing={playing}
               onTick={setTime}
               onEnded={() => setPlaying(false)}
+              guides={guides}
+              badge={current ? (current.name ?? current.src.split("/").pop()) : null}
             />
           </div>
           <div className="flex items-center justify-center gap-3 border-t border-line py-2">
@@ -577,10 +630,14 @@ function ProjectEditor({ bridge, project, onClose }: { bridge: Bridge; project: 
             <span className="font-mono text-xs tabular-nums text-muted">
               {formatTime(time, tl.fps)} / {formatTime(duration, tl.fps)}
             </span>
+            <span className="text-xs text-faint">{formatLabel(tl.width, tl.height)}</span>
+            <button className={`text-xs ${guides ? "text-paper" : "text-faint"} hover:text-paper`} onClick={() => setGuides((g) => !g)} title="Show the title-safe area">
+              Guides {guides ? "on" : "off"}
+            </button>
           </div>
         </div>
 
-        <aside className="flex w-80 shrink-0 flex-col border-l border-line bg-ink-2">
+        <aside className="flex w-[340px] shrink-0 flex-col border-l border-line bg-ink-2">
           <div className="flex border-b border-line text-xs">
             {(["inspect", "media", "requests", "export"] as Side[]).map((s) => (
               <button key={s} className={`flex-1 py-2.5 capitalize ${side === s ? "border-b-2 border-ember text-paper" : "text-muted hover:text-paper"}`} onClick={() => setSide(s)}>
@@ -590,7 +647,36 @@ function ProjectEditor({ bridge, project, onClose }: { bridge: Bridge; project: 
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {side === "inspect" &&
-              (sel?.kind === "clip" ? (
+              (sel?.kind === "clip" && sel.clip.params ? (
+                <div className="space-y-4">
+                  <ScenePanel
+                    key={`${sel.clip.id}:${sel.clip.params}`}
+                    bridge={bridge}
+                    project={project}
+                    path={sel.clip.params}
+                    clipName={sel.clip.name ?? sel.clip.src}
+                    start={sel.clip.start}
+                    end={clipEnd(sel.clip, media)}
+                    fps={tl.fps}
+                    frame={{ width: tl.width, height: tl.height }}
+                    onRendered={refreshMedia}
+                  />
+                  <details className="rounded-xl border border-line p-3">
+                    <summary className="cursor-pointer text-[10px] font-medium tracking-wider text-muted uppercase">Clip timing, hide &amp; requests</summary>
+                    <div className="mt-3">
+                      <ClipInspector
+                        clip={sel.clip}
+                        track={sel.track}
+                        media={media}
+                        fps={tl.fps}
+                        onPatch={(p) => apply(updateClip(tl, sel.track.id, sel.clip.id, p), `clip:${sel.clip.id}`)}
+                        onDelete={deleteSelection}
+                        onAsk={(text) => ask(text, { clipId: sel.clip.id, clipName: sel.clip.name ?? null, src: sel.clip.src, trackName: sel.track.name ?? null })}
+                      />
+                    </div>
+                  </details>
+                </div>
+              ) : sel?.kind === "clip" ? (
                 <ClipInspector
                   clip={sel.clip}
                   track={sel.track}
@@ -678,6 +764,7 @@ function ProjectEditor({ bridge, project, onClose }: { bridge: Bridge; project: 
           onCommit={(next) => apply(next)}
           onError={flash}
           onTrackPatch={(trackId, patch) => apply(updateTrack(tl, trackId, (t) => ({ ...t, ...patch }) as Track), `track:${trackId}`)}
+          hidden={hidden}
         />
       </div>
 

@@ -7,7 +7,7 @@ describes a video in Claude Code, Cursor or Claude Desktop; the AI calls the sit
 live, installs the engine's helper scripts locally and renders the video on the user's machine.
 
 ```
-User's AI ──MCP (OAuth or API key)──▶ /api/mcp ──▶ start_project / get_guide / get_scripts / generate_image
+User's AI ──MCP (OAuth or API key)──▶ /api/mcp ──▶ start_project / get_guide / get_scripts / get_style / get_assets …
    │                                                     │
    └── renders locally with Node/Python/FFmpeg ◀── signed bundle download (scripts + templates)
 ```
@@ -15,28 +15,37 @@ User's AI ──MCP (OAuth or API key)──▶ /api/mcp ──▶ start_project
 - **Instructions stay on the server.** `SKILL.md` and `reference/**` are only sent through MCP tool calls to active
   subscribers; never in the downloadable bundle.
 - **Scripts are local.** Everything else in the engine is a ZIP served from a 15-minute signed URL.
-- **Paywall:** Stripe monthly subscriptions plus one-off credit packs. Plans (price, video limit, image credits, allowed
-  image models, usage rights) are managed in Admin → Plans and pushed to Stripe from there.
-- **Image credits:** `generate_image` calls fal.ai with the owner's key. Monthly plan credits are spent first, then top-up
-  credits; failed generations are refunded. Ledger in `credit_ledger`.
+- **Paywall:** one flat Stripe monthly subscription, no usage limits (videos render on the user's PC). Plans (price,
+  usage rights, features) are managed in Admin → Plans and pushed to Stripe from there.
+- **Libraries:** styles, inspiration references and resource packs (`library_items` + `library_files`, `src/lib/library.ts`).
+  Files live in Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set (`src/lib/storage.ts`), otherwise base64 in the database.
+  `/api/files/<id>` serves them: gallery previews of published items are public; everything else needs a signed link
+  (made per subscriber for their AI, 60 min) or a signed-in subscriber. Admin uploads go browser → Blob directly
+  (`/api/admin/upload`, `@vercel/blob/client`) to avoid the serverless body limit.
+- **Computer setup:** until a user's AI calls `finish_setup`, every tool answer starts with the checklist from
+  `shared/framewright-tools/setup.md` (FFmpeg, Playwright + Chromium, Python venv with analysis/speech models, Voicebox,
+  yt-dlp). Bump `SETUP_VERSION` in `src/lib/shared-tools.ts` when the checklist changes.
+- **Voice:** Voicebox (local, `http://127.0.0.1:17493`) by default; users may save their own ElevenLabs key (encrypted in
+  `users.elevenlabs_key`). `get_voice` hands the AI a 2-hour signed link to `/api/voice/tts`, which calls ElevenLabs with
+  the key, so the key never reaches the AI.
 
 ## Configuration
 
 Only three environment variables (see `.env.example`): `DATABASE_URL`, `APP_URL`, `APP_SECRET`. Optional: `SETUP_CODE`,
-`ADMIN_EMAILS` (recovery admin), `FAL_API_BASE` (tests only).
+`ADMIN_EMAILS` (recovery admin), `BLOB_READ_WRITE_TOKEN` (added by Vercel when a Blob store is connected).
 
 Everything else is set in **Admin → Settings** and stored encrypted (AES-256-GCM, key derived from `APP_SECRET`) in the
 `settings` table: brand (name, tagline, accent, logo, support email, companion npm name), Stripe (secret key, webhook
-secret, created automatically on https deployments), Google OAuth client, image generation (fal.ai key, models, credits).
-`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID/SECRET` and `FAL_KEY` env vars still work as fallbacks.
+secret, created automatically on https deployments), Google OAuth client.
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `GOOGLE_CLIENT_ID/SECRET` env vars still work as fallbacks.
 
 First run: with no admin user, `/` redirects to `/setup`, which prints a one-time code to the server log (or uses
-`SETUP_CODE`), creates the admin and seeds the three default plans.
+`SETUP_CODE`), creates the admin and seeds the default flat plan.
 
 ## Stack
 
 Next.js 16 (App Router) · Drizzle ORM on Postgres (embedded PGlite locally) · Stripe Billing · MCP TypeScript SDK
-(stateless Streamable HTTP) · own OAuth 2.1 server (dynamic client registration + PKCE) · Tailwind 4 · fal.ai.
+(stateless Streamable HTTP) · own OAuth 2.1 server (dynamic client registration + PKCE) · Tailwind 4 · Vercel Blob.
 
 ## Run locally
 
@@ -67,8 +76,9 @@ deploy. Then follow the owner's guide (setup code from Vercel logs, Admin → Se
 
 `companion/` is a separate npm package (default name `framewright-companion`; the owner publishes it under their own name and
 enters that name in Admin → Settings → Brand, which updates every command the site shows). It runs as a stdio MCP server
-for Claude Desktop (proxies the site's tools with an API key; adds `install_engine`, `download_file`, workspace file tools,
-`run_command` / `job_status`, `open_editor`) or as the editor bridge (`--editor`). `npm publish` vendors
+for Claude Desktop (proxies the site's tools with an API key; adds `install_engine`, `get_assets` (installs packs once into
+`~/.framewright/assets`), `download_video` (yt-dlp), `download_file`, workspace file tools, `run_command` / `job_status`,
+`open_editor`) or as the editor bridge (`--editor`). `npm publish` vendors
 `shared/framewright-tools` into `companion/vendor/` first.
 
 ## Editable export (Premiere Pro · DaVinci Resolve · Final Cut Pro)
@@ -102,16 +112,30 @@ talks straight to the Framewright Companion's **editor bridge** on `127.0.0.1` (
 
 ## MCP tools
 
-| Tool | What it does | Counts toward limit |
-|---|---|---|
-| `list_engines` | Published engines with tags | no |
-| `start_project` | Picks an engine from the brief (keyword + tag match) and returns `SKILL.md` with a site preamble | **yes** |
-| `get_guide` | Returns one `reference/*.md` file | no |
-| `get_scripts` | Signed bundle URL + install commands | no |
-| `generate_image` | fal.ai image with the user's credits (plan model limits, refunds on failure) | credits |
-| `account_status` | Plan, usage, renewal date, credits, allowed models | no |
+| Tool | What it does |
+|---|---|
+| `list_engines` | Published engines with tags |
+| `start_project` | Picks an engine from the brief (keyword + tag match; optional `style`) and returns `SKILL.md` with a site preamble |
+| `get_guide` | Returns one `reference/*.md` file or a shared guide (`framewright/*.md`) |
+| `get_scripts` | Signed bundle URL + install commands |
+| `list_styles` / `get_style` | Style library; `get_style` returns style.json + recipe.md as text and the contact sheet as an image |
+| `list_refs` / `get_ref` | Inspiration library; breakdown.md, contact sheet + hook images, signed link to reference.mp4 |
+| `get_assets` | Published resource packs (structured output: slug, version, folder, signed URL) |
+| `get_setup` / `finish_setup` | Computer setup checklist; `finish_setup` records `users.setup_version` |
+| `get_voice` | Voicebox instructions, or ElevenLabs voices + signed TTS link when the user saved a key |
+| `account_status` | Subscription, voice provider, setup state |
 
 Every call is logged to `usage_events` for the admin analytics.
+
+## Scene sliders
+
+`shared/framewright-tools/scenes.md` (served as `framewright/scenes.md`) tells the AI to write a `*.params.json` per scene
+(typed params: text, number, color, select, toggle, position, easing; plus an argv render command and its output file) and
+to point the timeline clip at it with `"params"`. The editor (`src/app/editor/scene-panel.tsx`) edits values through the
+bridge (`GET/PUT /api/scene`, `POST /api/scene/render` in `companion/editor-bridge.js`), which validates every value and
+runs the render command without a shell (programs limited to node, python, python3, py, ffmpeg or the
+`~/.framewright/venv` Python). After a render the bridge reports the clip's new mtime, which reloads it in the preview.
+The panel also draws an approximate instant preview from params with `preview` roles (or conventional ids).
 
 ## Adding an engine
 

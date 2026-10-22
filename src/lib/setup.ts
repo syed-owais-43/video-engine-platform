@@ -51,40 +51,18 @@ export async function finishSetup() {
   await seedDefaultPlans();
 }
 
-// The blueprint's three tiers. Stripe prices are created later from Admin → Plans.
+// One flat, low-priced subscription: videos render on the customer's own computer, so there are no
+// usage limits to sell. The Stripe price is created later from Admin → Plans.
 export async function seedDefaultPlans() {
   const [{ n }] = await db.select({ n: count() }).from(plans);
   if (n > 0) return;
-  await db.insert(plans).values([
-    {
-      name: "Starter",
-      description: "Try it out with draft-quality images.",
-      priceCents: 299,
-      priceLabel: "$2.99 / month",
-      monthlyCredits: 200,
-      imageModels: ["schnell"],
-      commercialUse: false,
-      sort: 1,
-    },
-    {
-      name: "Creator",
-      description: "High-quality images and full commercial rights.",
-      priceCents: 599,
-      priceLabel: "$5.99 / month",
-      monthlyCredits: 500,
-      imageModels: ["schnell", "dev"],
-      commercialUse: true,
-      sort: 2,
-    },
-    {
-      name: "Pro",
-      description: "Our best image model and the most credits.",
-      priceCents: 1599,
-      priceLabel: "$15.99 / month",
-      monthlyCredits: 1500,
-      imageModels: ["schnell", "dev", "pro"],
-      commercialUse: true,
-      sort: 3,
-    },
-  ]);
+  await db.insert(plans).values({
+    name: "Unlimited",
+    description: "Every engine, style and resource pack. Unlimited videos, rendered on your own computer.",
+    priceCents: 599,
+    priceLabel: "$5.99 / month",
+    commercialUse: true,
+    features: ["Style and inspiration libraries", "Sound effects, fonts, textures and Lottie packs", "Timeline editor with scene sliders", "Export to Premiere, DaVinci Resolve and Final Cut"],
+    sort: 1,
+  });
 }

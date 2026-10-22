@@ -1,8 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import type { ImageModel } from "@/lib/settings";
-import { saveBrand, saveGoogle, saveImages, saveStripe, testImage, type ActionState } from "./actions";
+import { saveBrand, saveGoogle, saveStripe, type ActionState } from "./actions";
 
 function Status({ state }: { state: ActionState }) {
   if (state?.error) return <p className="text-sm text-bad">{state.error}</p>;
@@ -123,88 +122,6 @@ export function GoogleForm({ configured, clientId, redirectUri, origin }: { conf
           <button className="btn-primary" disabled={pending}>{pending ? "Saving…" : "Save"}</button>
         </div>
       </div>
-    </form>
-  );
-}
-
-export function ImagesForm({ enabled, hasKey, models }: { enabled: boolean; hasKey: boolean; models: ImageModel[] }) {
-  const [state, action, pending] = useActionState<ActionState, FormData>(saveImages, undefined);
-  const [rows, setRows] = useState(models);
-  return (
-    <form action={action} className="space-y-5">
-      <label className="flex items-center gap-3 text-sm">
-        <input type="checkbox" name="enabled" defaultChecked={enabled} className="h-4 w-4 accent-[var(--color-ember)]" />
-        Let customers&apos; AI generate images with their credits
-      </label>
-      <div>
-        <label className="label">fal.ai API key</label>
-        <input name="falKey" type="password" autoComplete="off" placeholder={hasKey ? "Set. Paste a new key to replace it." : "From fal.ai → Dashboard → Keys"} className="input font-mono" />
-        <p className="mt-1 text-xs text-faint">Images are billed to this fal.ai account. Customers pay you in credits.</p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>On</th>
-              <th>Key</th>
-              <th>Name shown to customers</th>
-              <th>fal.ai model id</th>
-              <th>Credits / image</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((m, i) => (
-              <tr key={i}>
-                <td>
-                  <input type="checkbox" name="modelEnabled" value={m.key} defaultChecked={m.enabled} className="accent-[var(--color-ember)]" />
-                </td>
-                <td>
-                  <input name="modelKey" defaultValue={m.key} onChange={(e) => setRows(rows.map((r, j) => (j === i ? { ...r, key: e.target.value } : r)))} className="input w-24 !py-1.5 font-mono" />
-                </td>
-                <td>
-                  <input name="modelLabel" defaultValue={m.label} className="input !py-1.5" />
-                </td>
-                <td>
-                  <input name="modelEndpoint" defaultValue={m.endpoint} className="input !py-1.5 font-mono" />
-                </td>
-                <td>
-                  <input name="modelCredits" type="number" min={1} defaultValue={m.credits} className="input w-20 !py-1.5" />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <button
-          type="button"
-          className="mt-2 text-xs text-muted hover:text-paper"
-          onClick={() => setRows([...rows, { key: "", label: "", endpoint: "", credits: 1, enabled: true }])}
-        >
-          + Add a model
-        </button>
-        <p className="mt-2 text-xs text-faint">Which plans may use each model is set per plan in Admin → Plans.</p>
-      </div>
-      <div className="flex items-center justify-end gap-4">
-        <Status state={state} />
-        <button className="btn-primary" disabled={pending}>{pending ? "Saving…" : "Save image settings"}</button>
-      </div>
-    </form>
-  );
-}
-
-export function TestImageForm({ models }: { models: ImageModel[] }) {
-  const [state, action, pending] = useActionState<ActionState, FormData>(testImage, undefined);
-  return (
-    <form action={action} className="flex flex-wrap items-center gap-3">
-      <select name="model" className="input w-auto !py-1.5">
-        {models.map((m) => (
-          <option key={m.key} value={m.key}>
-            {m.label}
-          </option>
-        ))}
-      </select>
-      <button className="btn-ghost !py-1.5" disabled={pending}>{pending ? "Generating…" : "Test (bills one image to your fal.ai account)"}</button>
-      <Status state={state} />
-      {state?.image && <img src={state.image} alt="Test result" className="h-24 w-24 rounded-lg border border-line object-cover" />}
     </form>
   );
 }

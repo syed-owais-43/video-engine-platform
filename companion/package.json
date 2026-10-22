@@ -1,6 +1,6 @@
 {
   "name": "framewright-companion",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Local MCP companion for Framewright: lets Claude Desktop and other chat apps render Framewright videos in a workspace folder.",
   "type": "module",
   "bin": {

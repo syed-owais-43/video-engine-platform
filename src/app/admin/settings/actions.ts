@@ -3,11 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
-import { generateImage } from "@/lib/images";
-import { getSettings, saveSection, type ImageModel } from "@/lib/settings";
+import { getSettings, saveSection } from "@/lib/settings";
 import { connectStripe } from "@/lib/stripe-admin";
 
-export type ActionState = { ok?: string; error?: string; image?: string } | undefined;
+export type ActionState = { ok?: string; error?: string } | undefined;
 
 const done = (ok: string): ActionState => {
   revalidatePath("/", "layout");
@@ -72,43 +71,4 @@ export async function saveGoogle(_: ActionState, form: FormData): Promise<Action
   if (clientId && !clientId.endsWith(".apps.googleusercontent.com")) return { error: "The client ID ends with .apps.googleusercontent.com." };
   await saveSection("google", { clientId: clientId || current.clientId, clientSecret: clientSecret || current.clientSecret });
   return done("Google sign-in saved.");
-}
-
-export async function saveImages(_: ActionState, form: FormData): Promise<ActionState> {
-  await requireAdmin();
-  const current = (await getSettings()).images;
-  const keys = form.getAll("modelKey").map(String);
-  const models: ImageModel[] = [];
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i].trim().toLowerCase();
-    const endpoint = String(form.getAll("modelEndpoint")[i] ?? "").trim();
-    const label = String(form.getAll("modelLabel")[i] ?? "").trim();
-    const credits = Number(form.getAll("modelCredits")[i]);
-    if (!key && !endpoint) continue;
-    if (!/^[a-z0-9-]{1,30}$/.test(key)) return { error: `Model key "${key}" must be lowercase letters, numbers or dashes.` };
-    if (!/^[\w.-]+\/[\w./-]+$/.test(endpoint)) return { error: `"${endpoint}" isn't a fal.ai model id (like fal-ai/flux/dev).` };
-    if (!Number.isInteger(credits) || credits < 1 || credits > 10000) return { error: `Credits for ${key} must be a whole number from 1 to 10000.` };
-    if (models.some((m) => m.key === key)) return { error: `Model key "${key}" is used twice.` };
-    models.push({ key, label: label || key, endpoint, credits, enabled: form.getAll("modelEnabled").map(String).includes(key) });
-  }
-  const enabled = form.get("enabled") === "on";
-  const falKey = str(form, "falKey") || current.falKey;
-  if (enabled && !falKey) return { error: "Add your fal.ai API key before turning image generation on." };
-  if (enabled && !models.some((m) => m.enabled)) return { error: "Enable at least one model." };
-  await saveSection("images", { enabled, falKey, models });
-  return done(enabled ? "Image generation is on." : "Image settings saved (generation is off).");
-}
-
-export async function testImage(_: ActionState, form: FormData): Promise<ActionState> {
-  await requireAdmin();
-  const s = (await getSettings()).images;
-  const model = s.models.find((m) => m.key === String(form.get("model")));
-  if (!s.falKey) return { error: "Save your fal.ai API key first." };
-  if (!model) return { error: "Pick a model." };
-  try {
-    const r = await generateImage({ falKey: s.falKey, endpoint: model.endpoint, prompt: "A small clay robot waving, studio light, simple background", aspect: "square" });
-    return { ok: `${model.label} works.`, image: r.images[0]?.url };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Test failed" };
-  }
 }

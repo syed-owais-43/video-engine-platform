@@ -15,6 +15,20 @@
       "when": 1792609591444,
       "tag": "0001_settings_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792690177283,
+      "tag": "0002_flat_plan_libraries",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792690178204,
+      "tag": "0003_style_inspiration_packs",
+      "breakpoints": true
     }
   ]
 }

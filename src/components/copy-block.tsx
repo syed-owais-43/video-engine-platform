@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 
-export function CopyBlock({ code, label }: { code: string; label?: string }) {
+export function CopyBlock({ code, label, wrap }: { code: string; label?: string; wrap?: boolean }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="relative">
       {label && <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-faint">{label}</p>}
-      <pre className="code pr-16">{code}</pre>
+      <pre className={`code pr-16 ${wrap ? "!whitespace-pre-wrap" : ""}`}>{code}</pre>
       <button
         type="button"
         onClick={async () => {

@@ -20,6 +20,12 @@ export const users = pgTable("users", {
   // Admin-granted free access, independent of Stripe.
   compAccess: boolean("comp_access").notNull().default(false),
   stripeCustomerId: text("stripe_customer_id").unique(),
+  // Voice for the user's videos: Voicebox runs free on their PC; ElevenLabs uses their own key
+  // (encrypted with APP_SECRET, never sent to their AI: the site calls ElevenLabs for them).
+  voiceProvider: text("voice_provider", { enum: ["voicebox", "elevenlabs"] }).notNull().default("voicebox"),
+  elevenlabsKey: text("elevenlabs_key"),
+  // Version of the computer-setup checklist the user's AI last confirmed (see lib/setup-checklist.ts).
+  setupVersion: integer("setup_version").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -42,51 +48,13 @@ export const plans = pgTable("plans", {
   // Earlier Stripe prices of this plan; existing subscribers stay on them after a price change.
   legacyPriceIds: jsonb("legacy_price_ids").$type<string[]>().notNull().default([]),
   priceLabel: text("price_label").notNull(), // e.g. "$29 / month"
-  // Max projects started per billing period; null means unlimited.
-  monthlyProjects: integer("monthly_projects"),
-  // Image credits granted each billing period, and which image models the plan may use.
-  monthlyCredits: integer("monthly_credits").notNull().default(0),
-  imageModels: jsonb("image_models").$type<string[]>().notNull().default([]),
   commercialUse: boolean("commercial_use").notNull().default(true),
   features: jsonb("features").$type<string[]>().notNull().default([]),
   active: boolean("active").notNull().default(true),
   sort: integer("sort").notNull().default(0),
 });
 
-// One-off credit purchases that never expire.
-export const creditPacks = pgTable("credit_packs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  credits: integer("credits").notNull(),
-  priceCents: integer("price_cents").notNull(),
-  currency: text("currency").notNull().default("usd"),
-  stripeProductId: text("stripe_product_id"),
-  stripePriceId: text("stripe_price_id").unique(),
-  active: boolean("active").notNull().default(true),
-  sort: integer("sort").notNull().default(0),
-});
-
-// Every credit movement. Monthly credits are the plan allowance minus spends in the current period;
-// top-up credits are the running sum of purchases, spends and adjustments in the "topup" bucket.
-export const creditLedger = pgTable(
-  "credit_ledger",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-    bucket: text("bucket", { enum: ["monthly", "topup"] }).notNull(),
-    delta: integer("delta").notNull(),
-    reason: text("reason", { enum: ["image", "refund", "purchase", "admin"] }).notNull(),
-    // Billing period the entry belongs to (monthly bucket only).
-    periodStart: timestamp("period_start", { withTimezone: true }),
-    // Idempotency key, e.g. a Stripe checkout session id.
-    ref: text("ref").unique(),
-    detail: text("detail"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index("credit_ledger_user_idx").on(t.userId, t.createdAt)],
-);
-
-// Admin-managed configuration (brand, Stripe, Google, image generation). Values are encrypted.
+// Admin-managed configuration (brand, Stripe, Google). Values are encrypted.
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -147,6 +115,48 @@ export const engineFiles = pgTable(
   (t) => [uniqueIndex("engine_files_version_path_idx").on(t.versionId, t.path)],
 );
 
+// Style library, inspiration library and resource packs. Each item is uploaded as a ZIP from the
+// admin panel. Styles and references are unpacked into library_files (Claude reads their text and
+// still frames through MCP); a resource pack is kept as one ZIP that the Companion installs locally.
+export const libraryItems = pgTable(
+  "library_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind", { enum: ["style", "ref", "pack"] }).notNull(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    published: boolean("published").notNull().default(false),
+    // Packs: bumped on every upload so the Companion knows to download again.
+    version: integer("version").notNull().default(1),
+    // style.json for styles; { category } for packs.
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    // recipe.md (styles) or breakdown.md (references).
+    notes: text("notes").notNull().default(""),
+    sort: integer("sort").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("library_items_kind_slug_idx").on(t.kind, t.slug)],
+);
+
+// One file of a library item. Stored in Vercel Blob when the site has a Blob store (url), otherwise
+// in the database itself (data, base64), which is fine for local testing and small items.
+export const libraryFiles = pgTable(
+  "library_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id").notNull().references(() => libraryItems.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    size: integer("size").notNull(),
+    contentType: text("content_type").notNull(),
+    url: text("url"),
+    data: text("data"),
+  },
+  (t) => [uniqueIndex("library_files_item_path_idx").on(t.itemId, t.path)],
+);
+
 export const apiKeys = pgTable("api_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -200,5 +210,6 @@ export const usageEvents = pgTable(
 
 export type User = typeof users.$inferSelect;
 export type Plan = typeof plans.$inferSelect;
-export type CreditPack = typeof creditPacks.$inferSelect;
 export type Engine = typeof engines.$inferSelect;
+export type LibraryItem = typeof libraryItems.$inferSelect;
+export type LibraryFile = typeof libraryFiles.$inferSelect;

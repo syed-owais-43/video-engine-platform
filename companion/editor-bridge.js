@@ -6,10 +6,11 @@
 // requests from the Framewright site, and every call needs the random pairing token that is
 // handed to the browser in the URL fragment (never sent to the website).
 
-import { exec, execFile } from "node:child_process";
+import { exec, execFile, spawn } from "node:child_process";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
+import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { checkTimeline, probe, TimelineError, writePackage } from "./vendor/fw-export.mjs";
 import { compose } from "./vendor/fw-compose.mjs";
@@ -23,6 +24,94 @@ const MEDIA_EXT = {
   ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg", ".flac": "audio/flac",
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp",
 };
+
+// Scene sliders (see shared/framewright-tools/scenes.md): each scene's settings live in a
+// *.params.json file next to the project. The editor may change only the values; the render command
+// is written by the user's AI and runs without a shell, limited to these programs.
+const PARAMS_RE = /\.params\.json$/i;
+const PARAM_TYPES = new Set(["text", "number", "color", "select", "toggle", "position", "easing"]);
+const POSITIONS = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
+const RENDER_PROGRAMS = new Set(["node", "python", "python3", "py", "ffmpeg"]);
+const FW_VENV = join(homedir(), ".framewright", "venv");
+const SCENE_RENDER_TIMEOUT = 15 * 60_000;
+
+const optionValue = (o) => (o && typeof o === "object" ? o.value : o);
+const round = (n, d = 6) => Math.round(n * 10 ** d) / 10 ** d;
+
+// Returns the cleaned value, or throws with a reason the editor can show.
+function coerceParam(q, v) {
+  switch (q.type) {
+    case "text": {
+      if (typeof v !== "string") throw new Error("must be text");
+      const max = Number.isFinite(q.maxLength) ? q.maxLength : 200;
+      if (v.length > max) throw new Error(`is longer than ${max} characters`);
+      return v;
+    }
+    case "number": {
+      const n = Number(v);
+      if (typeof v === "boolean" || v === "" || v === null || !Number.isFinite(n)) throw new Error("must be a number");
+      const clamped = Math.min(q.max, Math.max(q.min, n));
+      const step = Number.isFinite(q.step) && q.step > 0 ? q.step : null;
+      return round(step ? Math.min(q.max, q.min + Math.round((clamped - q.min) / step) * step) : clamped);
+    }
+    case "color":
+      if (typeof v !== "string" || !/^#[0-9a-f]{6}$/i.test(v)) throw new Error("must be a colour like #ff6a2b");
+      return v.toLowerCase();
+    case "select": {
+      const hit = (q.options ?? []).map(optionValue).find((o) => String(o) === String(v));
+      if (hit === undefined) throw new Error("isn't one of the options");
+      return hit;
+    }
+    case "toggle":
+      if (typeof v !== "boolean") throw new Error("must be true or false");
+      return v;
+    case "position":
+      if (!POSITIONS.includes(v)) throw new Error(`must be one of ${POSITIONS.join(", ")}`);
+      return v;
+    case "easing": {
+      if (!Array.isArray(v) || v.length !== 4 || !v.every((x) => typeof x === "number" && Number.isFinite(x))) throw new Error("must be [x1, y1, x2, y2]");
+      const [x1, y1, x2, y2] = v;
+      const c = (x, lo, hi) => round(Math.min(hi, Math.max(lo, x)), 3);
+      return [c(x1, 0, 1), c(y1, -1, 2), c(x2, 0, 1), c(y2, -1, 2)];
+    }
+    default:
+      throw new Error(`has an unknown type "${q.type}"`);
+  }
+}
+
+function sceneProblems(s) {
+  if (!s || typeof s !== "object" || Array.isArray(s)) return ["The file must contain a JSON object."];
+  const problems = [];
+  if (!Array.isArray(s.params)) problems.push('"params" must be a list.');
+  const ids = new Set();
+  for (const [i, q] of (Array.isArray(s.params) ? s.params : []).entries()) {
+    const at = `params[${i}]${q?.id ? ` "${q.id}"` : ""}`;
+    if (!q || typeof q.id !== "string" || !q.id) {
+      problems.push(`${at}: "id" is required.`);
+      continue;
+    }
+    if (ids.has(q.id)) problems.push(`${at}: the id is used twice.`);
+    ids.add(q.id);
+    if (!PARAM_TYPES.has(q.type)) {
+      problems.push(`${at}: unknown type "${q.type}".`);
+      continue;
+    }
+    if (q.type === "number" && !(Number.isFinite(q.min) && Number.isFinite(q.max) && q.max > q.min)) problems.push(`${at}: numbers need "min" below "max".`);
+    if (q.type === "select" && !(Array.isArray(q.options) && q.options.length)) {
+      problems.push(`${at}: selects need "options".`);
+      continue;
+    }
+    try {
+      coerceParam(q, q.value);
+    } catch (e) {
+      problems.push(`${at}: "value" ${e.message}.`);
+    }
+  }
+  const cmd = s.render?.command;
+  if (!Array.isArray(cmd) || !cmd.length || !cmd.every((a) => typeof a === "string")) problems.push('"render.command" must be a list of strings, program first.');
+  if (typeof s.render?.output !== "string" || !s.render.output) problems.push('"render.output" is required.');
+  return problems;
+}
 
 const inside = (root, p) => {
   const rel = relative(root, p);
@@ -135,7 +224,8 @@ export async function startEditorBridge({ root, site, port = 7717 }) {
       if (typeof src !== "string" || src in out) return;
       const abs = resolve(dir, src);
       try {
-        out[src] = inside(dir, abs) && existsSync(abs) ? cachedProbe(abs) : null;
+        // mtime lets the editor reload a clip whose file was re-rendered in place (scene sliders).
+        out[src] = inside(dir, abs) && existsSync(abs) ? { ...cachedProbe(abs), mtime: statSync(abs).mtimeMs } : null;
       } catch {
         out[src] = null;
       }
@@ -227,6 +317,112 @@ export async function startEditorBridge({ root, site, port = 7717 }) {
     };
     for (const sub of ["assets", "renders"]) if (existsSync(join(dir, sub))) walk(join(dir, sub), 0);
     return out;
+  }
+
+  // ---------- scene sliders ----------
+
+  const sceneJobs = new Map(); // params file -> job id
+
+  function sceneFile(dir, rel) {
+    if (typeof rel !== "string" || !PARAMS_RE.test(rel)) throw new HttpError(400, "Not a scene params file (*.params.json)");
+    const abs = resolve(dir, rel);
+    if (!inside(dir, abs) || !existsSync(abs)) throw new HttpError(404, `Scene params file not found: ${rel}`);
+    return abs;
+  }
+
+  function readScene(abs) {
+    let scene;
+    try {
+      scene = JSON.parse(readFileSync(abs, "utf8"));
+    } catch (e) {
+      throw new HttpError(422, `${basename(abs)} isn't valid JSON: ${e.message}`);
+    }
+    const problems = sceneProblems(scene);
+    if (problems.length) throw new HttpError(422, `${basename(abs)} has problems`, { problems });
+    return scene;
+  }
+
+  function writeScene(abs, scene) {
+    const tmp = `${abs}.tmp`;
+    writeFileSync(tmp, JSON.stringify(scene, null, 2) + "\n");
+    renameSync(tmp, abs);
+    return statSync(abs).mtimeMs;
+  }
+
+  function updateScene(abs, values) {
+    if (!values || typeof values !== "object" || Array.isArray(values)) throw new HttpError(400, "Send { values: { id: value } }");
+    const scene = readScene(abs);
+    const problems = [];
+    for (const [id, v] of Object.entries(values)) {
+      const q = scene.params.find((x) => x.id === id);
+      if (!q) {
+        problems.push(`Unknown setting "${id}".`);
+        continue;
+      }
+      try {
+        const next = coerceParam(q, v);
+        if (q.default === undefined) q.default = q.value; // what Reset goes back to
+        q.value = next;
+      } catch (e) {
+        problems.push(`${q.label ?? id} ${e.message}.`);
+      }
+    }
+    if (problems.length) throw new HttpError(422, "Some settings weren't accepted", { problems });
+    return { scene, mtime: writeScene(abs, scene) };
+  }
+
+  // Runs the scene's own render command, without a shell, inside the project.
+  function renderScene(dir, abs) {
+    const running = sceneJobs.get(abs);
+    if (running && jobs.get(running)?.status === "running") return jobs.get(running);
+    const scene = readScene(abs);
+    const [given, ...args] = scene.render.command;
+    const program = given.replace(/^~(?=[\\/])/, homedir());
+    const name = basename(program).toLowerCase().replace(/\.exe$/, "");
+    const bare = !/[\\/]/.test(program);
+    if (!(bare && RENDER_PROGRAMS.has(name)) && !inside(FW_VENV, resolve(dir, program))) {
+      throw new HttpError(422, `The render command must start with ${[...RENDER_PROGRAMS].join(", ")} or the Python in ~/.framewright/venv (got "${given}").`);
+    }
+    const cwd = resolve(dir, scene.render.cwd ?? ".");
+    const output = resolve(dir, scene.render.output);
+    if (!inside(dir, cwd) || !existsSync(cwd)) throw new HttpError(422, '"render.cwd" must be a folder inside the project.');
+    if (!inside(dir, output)) throw new HttpError(422, '"render.output" must be inside the project.');
+    const outRel = relative(dir, output).split(sep).join("/");
+
+    const job = startJob(
+      "scene",
+      (onProgress) =>
+        new Promise((ok, fail) => {
+          const env = { ...process.env };
+          delete env.FRAMEWRIGHT_API_KEY;
+          const started = Date.now();
+          const child = spawn(bare ? program : resolve(dir, program), args, { cwd, env, windowsHide: true, shell: false });
+          let log = "";
+          const onData = (d) => {
+            log = (log + d.toString()).slice(-6000);
+            const pct = [...d.toString().matchAll(/(\d{1,3}(?:\.\d+)?)\s?%/g)].pop();
+            if (pct) onProgress(Math.min(0.99, Number(pct[1]) / 100));
+          };
+          child.stdout.on("data", onData);
+          child.stderr.on("data", onData);
+          const timer = setTimeout(() => child.kill(), SCENE_RENDER_TIMEOUT);
+          child.on("error", (e) => {
+            clearTimeout(timer);
+            fail(new Error(e.code === "ENOENT" ? `"${given}" isn't installed or isn't on PATH.` : e.message));
+          });
+          child.on("close", (code) => {
+            clearTimeout(timer);
+            const tail = log.trim().split("\n").slice(-12).join("\n");
+            if (code !== 0) return fail(new Error(`The render stopped (exit code ${code}).\n${tail}`));
+            if (!existsSync(output) || statSync(output).mtimeMs < started - 1000) {
+              return fail(new Error(`The render finished but didn't write ${outRel}.\n${tail}`));
+            }
+            ok(outRel);
+          });
+        }),
+    );
+    sceneJobs.set(abs, job.id);
+    return job;
   }
 
   // ---------- http ----------
@@ -369,6 +565,25 @@ export async function startEditorBridge({ root, site, port = 7717 }) {
         writeRequests(dir, requests);
         return json(res, 200, { requests });
       }
+    }
+
+    if (path === "/api/scene") {
+      const dir = projectDir(p);
+      const abs = sceneFile(dir, url.searchParams.get("path"));
+      if (req.method === "GET") {
+        const running = sceneJobs.get(abs);
+        const job = running && jobs.get(running)?.status === "running" ? jobs.get(running) : null;
+        return json(res, 200, { scene: readScene(abs), mtime: statSync(abs).mtimeMs, job });
+      }
+      if (req.method === "PUT") {
+        const b = JSON.parse((await readBody(req, 200_000)).toString("utf8"));
+        return json(res, 200, updateScene(abs, b.values));
+      }
+    }
+
+    if (path === "/api/scene/render" && req.method === "POST") {
+      const dir = projectDir(p);
+      return json(res, 202, { job: renderScene(dir, sceneFile(dir, url.searchParams.get("path"))) });
     }
 
     if (path === "/api/render" && req.method === "POST") {

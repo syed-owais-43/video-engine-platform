@@ -8,7 +8,13 @@ const DIR = path.join(process.cwd(), "shared", "framewright-tools");
 export const SHARED_GUIDES: Record<string, string> = {
   "framewright/export.md": "export.md",
   "framewright/editor.md": "editor.md",
+  "framewright/scenes.md": "scenes.md",
+  "framewright/setup.md": "setup.md",
+  "framewright/voice.md": "voice.md",
 };
+
+// Bump when setup.md asks for something new: every user's AI then runs the checklist again.
+export const SETUP_VERSION = 1;
 
 export const SHARED_SCRIPTS: Record<string, string> = {
   "framewright/fw-export.mjs": "fw-export.mjs",

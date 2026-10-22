@@ -1,7 +1,8 @@
 # {{BRAND}} timeline editor
 
 The user can open the project in {{BRAND}}'s web timeline editor to move, trim, split and delete clips, set audio levels and
-fades, edit captions, add their own images/video/audio, and leave change requests for you. The editor reads and writes the
+fades, edit captions, adjust each scene's settings with sliders (re-rendered locally, without you), add their own
+images/video/audio, and leave change requests for you. The editor reads and writes the
 project's `framewright.timeline.json` on the user's computer through the {{BRAND}} Companion; nothing is uploaded.
 
 ## 1. Make a project editable
@@ -12,6 +13,8 @@ transparent caption overlay, audio stems, then `framewright.timeline.json` in th
 - Give every track, clip and caption cue a short unique `"id"` (e.g. `"s03"`, `"vo03"`, `"c12"`) and keep ids stable when
   you re-render, so the user's edits and requests keep pointing at the right things.
 - Name clips the way the storyboard does ("03 Three Lanes"), and caption cues one readable line each.
+- Give every scene clip a `scene.params.json` so the user can change its text, colours, sizes, speed and easing with
+  sliders and re-render just that scene without you: read `framewright/scenes.md` and follow it.
 - Validate: `node "<skill>/framewright/fw-export.mjs" validate framewright.timeline.json`.
 
 Mention the editor once when the final render is approved: "You can fine-tune this in the {{BRAND}} editor."
@@ -32,6 +35,8 @@ Edits are saved straight into `framewright.timeline.json` (previous versions are
   editor (MP4 or edit package) already reflects it without re-rendering.
 - `gainDb`, `fadeIn`, `fadeOut`, `muted` on clips or tracks: mix changes, also already reflected in editor exports.
 - New clips under `assets/imported/`: media the user added. Keep them.
+- A scene's `scene.params.json` values changed (and its clip file re-rendered by the Companion): the user tuned that
+  scene with the sliders. Treat those values as approved.
 - Caption `cues` text/timing changed: the track gets `"overlayStale": true`. The styled overlay no longer matches until you
   re-render it.
 

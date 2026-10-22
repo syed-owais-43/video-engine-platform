@@ -3,9 +3,9 @@
 // can't run commands themselves. It proxies the Framewright engine tools from the website
 // and adds file + command tools scoped to one workspace folder.
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { unzipSync } from "fflate";
@@ -16,11 +16,13 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { z } from "zod";
 import { openInBrowser, startEditorBridge } from "./editor-bridge.js";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const SITE = (process.env.FRAMEWRIGHT_URL ?? "").replace(/\/$/, "");
 const API_KEY = process.env.FRAMEWRIGHT_API_KEY ?? "";
 const WORKSPACE = resolve(process.env.FRAMEWRIGHT_WORKSPACE ?? join(homedir(), "Framewright"));
-const ENGINES_DIR = resolve(process.env.FRAMEWRIGHT_ENGINES_DIR ?? join(homedir(), ".framewright", "engines"));
+const FW_HOME = join(homedir(), ".framewright");
+const ENGINES_DIR = resolve(process.env.FRAMEWRIGHT_ENGINES_DIR ?? join(FW_HOME, "engines"));
+const ASSETS_DIR = resolve(process.env.FRAMEWRIGHT_ASSETS_DIR ?? join(FW_HOME, "assets"));
 const MAX_OUTPUT = 30_000;
 
 // `framewright-companion --editor [--project <folder>] [--port 7717] [--site <url>]` runs only the
@@ -40,6 +42,7 @@ if (argv.includes("--editor")) {
 
 mkdirSync(WORKSPACE, { recursive: true });
 mkdirSync(ENGINES_DIR, { recursive: true });
+mkdirSync(ASSETS_DIR, { recursive: true });
 
 const text = (t, isError = false) => ({ content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) });
 
@@ -79,12 +82,12 @@ function inside(root, p) {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-// Relative paths resolve against the workspace. Reads may also target installed engines.
+// Relative paths resolve against the workspace. Reads may also target installed engines and packs.
 function resolvePath(p, { write = false } = {}) {
   const full = resolve(isAbsolute(p) ? p : join(WORKSPACE, p));
   if (inside(WORKSPACE, full)) return full;
-  if (!write && inside(ENGINES_DIR, full)) return full;
-  throw new Error(`Path is outside the allowed folders. Workspace: ${WORKSPACE}${write ? "" : `; engines (read-only): ${ENGINES_DIR}`}`);
+  if (!write && (inside(ENGINES_DIR, full) || inside(ASSETS_DIR, full))) return full;
+  throw new Error(`Path is outside the allowed folders. Workspace: ${WORKSPACE}${write ? "" : `; read-only: ${ENGINES_DIR}, ${ASSETS_DIR}`}`);
 }
 
 // ---------- Commands ----------
@@ -140,9 +143,11 @@ function jobReport(job) {
 const server = new McpServer(
   { name: "framewright-companion", version: VERSION },
   {
-    instructions: `Framewright Companion. Use start_project to begin a video, get_guide for reference/*.md files, and install_engine to install an engine's local scripts.
+    instructions: `Framewright Companion. First time on this computer: call get_setup and install what it lists with run_command (the user does nothing), then finish_setup.
+Use list_styles/get_style (or list_refs/get_ref) for the look, start_project to begin a video, get_guide for reference/*.md files, install_engine to install an engine's local scripts, get_assets for sound effects, fonts, textures and Lottie files, and get_voice for the voice-over.
+When the user gives a video link as a reference, download it with download_video.
 Work inside the workspace folder ${WORKSPACE}: create one subfolder per video project. Use write_file/read_file/list_files for files and run_command for terminal commands (PowerShell on Windows, bash elsewhere).
-For long renders pass background=true and poll with job_status. Installed engines live in ${ENGINES_DIR} (read-only).`,
+For long renders pass background=true and poll with job_status. Installed engines live in ${ENGINES_DIR} and resource packs in ${ASSETS_DIR} (both read-only).`,
   },
 );
 
@@ -156,18 +161,19 @@ server.registerTool(
   "start_project",
   {
     title: "Start a video project",
-    description: "Start a new video: picks the best engine for the brief and returns its instructions. Counts as one project on the user's plan.",
+    description: "Start a new video: picks the best engine for the brief and returns its instructions.",
     inputSchema: {
       brief: z.string().min(3).max(4000).describe("The user's idea, format, length, style and references, summarised"),
       engine: z.string().optional().describe("Engine slug to force; omit to auto-select"),
+      style: z.string().optional().describe("Style id from list_styles, if the user chose one"),
     },
   },
   async (args) => {
     const res = await callRemote("start_project", args);
     if (res.isError) return res;
     return text(
-      `${remoteText(res)}\n\n---\nCompanion notes: install the engine with install_engine (not get_scripts). ` +
-        `Create the project folder inside ${WORKSPACE}.`,
+      `${remoteText(res)}\n\n---\nCompanion notes: install the engine with install_engine (not get_scripts) and packs with get_assets. ` +
+        `Create the project folder inside ${WORKSPACE}. Use download_file for links from get_style/get_ref.`,
     );
   },
 );
@@ -185,31 +191,154 @@ server.registerTool(
 
 server.registerTool(
   "account_status",
-  { title: "Account status", description: "Show the user's Framewright plan and usage.", inputSchema: {}, annotations: { readOnlyHint: true } },
+  { title: "Account status", description: "Show the user's subscription, voice provider and setup state.", inputSchema: {}, annotations: { readOnlyHint: true } },
   async () => callRemote("account_status"),
 );
 
+// Library, setup and voice tools are answered by the site; the Companion just passes them through.
+const passThrough = (name, title, description, inputSchema, readOnly = true) =>
+  server.registerTool(name, { title, description, inputSchema, ...(readOnly ? { annotations: { readOnlyHint: true } } : {}) }, async (args) =>
+    callRemote(name, args),
+  );
+
+passThrough("list_styles", "List styles", "List the video styles (look recipes). Optional filter by tag or word.", { tag: z.string().max(60).optional() });
+passThrough(
+  "get_style",
+  "Load a style",
+  "Load one style: style.json, recipe.md and its contact sheet. Build the video in exactly that look. Save its files with download_file.",
+  { id: z.string().min(1).max(80) },
+);
+passThrough("list_refs", "List inspiration references", "List analysed reference videos. Optional filter by tag or word.", { tag: z.string().max(60).optional() });
+passThrough("get_ref", "Load an inspiration reference", "Load one reference: shot-by-shot breakdown, contact sheets and a private link to the original.", {
+  id: z.string().min(1).max(80),
+});
+passThrough("get_setup", "Computer setup checklist", "The one-time setup checklist for this computer. Install everything with run_command, then call finish_setup.", {});
+passThrough("finish_setup", "Finish computer setup", "Report that the setup checklist is done on this computer.", { summary: z.string().min(2).max(1000) }, false);
+passThrough("get_voice", "Voice-over", "How to make the voice-over: Voicebox on this computer (default) or the user's own ElevenLabs key.", {});
+
+const PACK_CATEGORIES = ["sfx", "fonts", "textures", "lottie", "music", "other"];
+
 server.registerTool(
-  "generate_image",
+  "get_assets",
   {
-    title: "Generate an image",
+    title: "Install resource packs",
     description:
-      "Generate one image with the user's image credits (only when the user wants AI images). Returns a temporary URL; save it with download_file.",
+      `Sound effects, fonts, textures, Lottie animations and music. Downloads each published pack once into ${ASSETS_DIR} ` +
+      "(new versions replace old ones) and returns the folders. Copy what a project uses into its assets/ folder.",
+    inputSchema: { category: z.enum(PACK_CATEGORIES).optional().describe("Only packs of this kind") },
+  },
+  async ({ category }) => {
+    const res = await callRemote("get_assets", category ? { category } : {});
+    if (res.isError) return res;
+    const packs = res.structuredContent?.packs;
+    if (!Array.isArray(packs)) return res;
+    if (!packs.length) return text("No resource packs are published yet.");
+    const lines = [];
+    for (const p of packs) {
+      const home = resolve(ASSETS_DIR, String(p.slug));
+      const dir = join(home, `v${Number(p.version)}`);
+      if (!inside(ASSETS_DIR, home) || home === ASSETS_DIR) continue;
+      const about = `${p.name} (${p.category})${p.description ? `: ${p.description}` : ""}`;
+      if (existsSync(join(dir, ".installed"))) {
+        lines.push(`- ${dir}\n  ${about}`);
+        continue;
+      }
+      try {
+        const dl = await fetch(p.url, { signal: AbortSignal.timeout(30 * 60_000) });
+        if (!dl.ok) throw new Error(`download failed (${dl.status})`);
+        const files = unzipSync(new Uint8Array(await dl.arrayBuffer()));
+        let n = 0;
+        for (const [name, data] of Object.entries(files)) {
+          if (name.endsWith("/") || name.startsWith("__MACOSX/")) continue;
+          const out = resolve(dir, name);
+          if (!inside(dir, out)) continue; // never let a ZIP entry escape the pack folder
+          mkdirSync(dirname(out), { recursive: true });
+          writeFileSync(out, data);
+          n++;
+        }
+        writeFileSync(join(dir, ".installed"), JSON.stringify({ slug: p.slug, version: p.version, files: n, at: new Date().toISOString() }));
+        // Older versions of the same pack are no longer needed.
+        for (const old of readdirSync(home)) if (old !== `v${p.version}` && /^v\d+$/.test(old)) rmSync(join(home, old), { recursive: true, force: true });
+        lines.push(`- ${dir} (just installed, ${n} files)\n  ${about}`);
+      } catch (e) {
+        lines.push(`- ${p.slug}: couldn't install (${e.message}). Try get_assets again later.`);
+      }
+    }
+    return text(
+      `Resource packs in ${ASSETS_DIR} (list_files / read_file can read them; copy files into the project's assets/ folder with run_command):\n` +
+        `${lines.join("\n")}\n\nRecord each file you use in the asset manifest as "pack <name>".`,
+    );
+  },
+);
+
+// yt-dlp from the setup checklist's Python environment, or from PATH.
+function ytDlp() {
+  const venv = join(FW_HOME, "venv", process.platform === "win32" ? join("Scripts", "yt-dlp.exe") : join("bin", "yt-dlp"));
+  return existsSync(venv) ? venv : "yt-dlp";
+}
+
+server.registerTool(
+  "download_video",
+  {
+    title: "Download a reference video",
+    description:
+      "Download a video from a link (YouTube, TikTok, Instagram, X, Vimeo and most other sites) into the workspace with yt-dlp, as a private reference for the user's project. " +
+      "Don't use downloaded footage in the final video unless the user owns it or has the rights.",
     inputSchema: {
-      prompt: z.string().min(3).max(2000),
-      model: z.string().optional().describe("Model key from account_status; omit for the plan default"),
-      aspect: z.enum(["square", "landscape", "portrait", "landscape-4-3", "portrait-4-3"]).default("landscape"),
-      seed: z.number().int().optional(),
+      url: z.string().url(),
+      folder: z.string().default("refs").describe("Destination folder inside the workspace, e.g. my-video/refs"),
+      name: z.string().max(80).optional().describe("File name without extension; default: the video's title"),
+      max_height: z.number().int().min(144).max(4320).default(1080),
     },
   },
-  async (args) => callRemote("generate_image", args),
+  async ({ url, folder, name, max_height }) => {
+    if (!/^https?:\/\//i.test(url)) return text("Only http(s) links can be downloaded.", true);
+    let dir;
+    try {
+      dir = resolvePath(folder, { write: true });
+      mkdirSync(dir, { recursive: true });
+    } catch (e) {
+      return text(e.message, true);
+    }
+    const stem = name ? name.replace(/[^\w .()-]+/g, "_").trim() || "reference" : "%(title).80B";
+    const args = [
+      "--no-playlist",
+      "--no-simulate",
+      "-f",
+      `bv*[height<=${max_height}]+ba/b[height<=${max_height}]/b`,
+      "--merge-output-format",
+      "mp4",
+      "--print",
+      "after_move:filepath",
+      "-o",
+      join(dir, `${stem}.%(ext)s`),
+      url,
+    ];
+    return new Promise((done) => {
+      execFile(ytDlp(), args, { windowsHide: true, timeout: 20 * 60_000, maxBuffer: 8 << 20 }, (err, stdout, stderr) => {
+        if (err) {
+          const missing = err.code === "ENOENT";
+          return done(
+            text(
+              missing
+                ? "yt-dlp isn't installed yet. Run the setup checklist (get_setup, step 4) and try again."
+                : `yt-dlp failed: ${(stderr || err.message).trim().split("\n").slice(-6).join("\n")}`,
+              true,
+            ),
+          );
+        }
+        const file = stdout.trim().split(/\r?\n/).pop();
+        done(text(`Saved ${file}\nUse it as a private reference (analysis, timing, look) for this project.`));
+      });
+    });
+  },
 );
 
 server.registerTool(
   "download_file",
   {
     title: "Download a file",
-    description: "Download a URL (e.g. a generated image) into the workspace, for example <project>/assets/generated/hero.jpg.",
+    description: "Download a URL (e.g. a style's font or sound from get_style) into the workspace, for example <project>/assets/style/clean-premium-saas/fonts/Satoshi.otf.",
     inputSchema: { url: z.string().url(), path: z.string().describe("Destination inside the workspace") },
   },
   async ({ url, path }) => {

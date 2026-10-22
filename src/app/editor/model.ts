@@ -12,6 +12,8 @@ export type Clip = {
   fadeIn?: number;
   fadeOut?: number;
   muted?: boolean;
+  // Path of the scene's *.params.json (scene sliders, see shared/framewright-tools/scenes.md).
+  params?: string;
 };
 
 export type Cue = { id: string; start: number; end: number; text: string };
@@ -36,6 +38,7 @@ export type MediaInfo = {
   duration: number;
   video: { width: number; height: number; alpha: boolean; codec?: string } | null;
   audio: { rate: number; channels: number } | null;
+  mtime?: number;
 } | null;
 
 export type EditorRequest = {
@@ -50,6 +53,46 @@ export type EditorRequest = {
   text: string;
   note?: string;
 };
+
+// ---------- scene sliders (*.params.json) ----------
+
+export type Position =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "middle-left"
+  | "middle-center"
+  | "middle-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+export type Bezier = [number, number, number, number];
+export type SelectOption = string | number | { value: string | number; label?: string };
+
+type ParamBase = { id: string; label?: string; group?: string; hint?: string; preview?: string };
+export type SceneParam = ParamBase &
+  (
+    | { type: "text"; value: string; default?: string; maxLength?: number; multiline?: boolean }
+    | { type: "number"; value: number; default?: number; min: number; max: number; step?: number; unit?: string }
+    | { type: "color"; value: string; default?: string; options?: string[] }
+    | { type: "select"; value: string | number; default?: string | number; options: SelectOption[] }
+    | { type: "toggle"; value: boolean; default?: boolean }
+    | { type: "position"; value: Position; default?: Position }
+    | { type: "easing"; value: Bezier; default?: Bezier }
+  );
+export type ParamValue = SceneParam["value"];
+
+export type SceneParams = {
+  version: 1;
+  scene?: string;
+  name?: string;
+  style?: string;
+  groups?: string[];
+  render: { command: string[]; cwd?: string; output: string };
+  params: SceneParam[];
+};
+
+export const POSITIONS: Position[] = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
 
 export type Selection = { kind: "clip" | "cue"; trackId: string; id: string } | null;
 
@@ -144,5 +187,23 @@ export function updateCue(tl: Timeline, trackId: string, cueId: string, patch: P
 
 // Strips nothing: the bridge validates and stores the timeline as-is (ids included).
 export const serialise = (tl: Timeline) => tl;
+
+// Track kinds for the editor's timeline filter. Video tracks holding only files from assets/ are the
+// user's own media; other video tracks are the rendered scenes.
+export type TrackFilter = "scenes" | "captions" | "audio" | "media";
+export function trackFilter(t: Track): TrackFilter {
+  if (t.kind === "captions") return "captions";
+  if (t.kind === "audio") return "audio";
+  return t.clips.length > 0 && t.clips.every((c) => c.src.startsWith("assets/")) ? "media" : "scenes";
+}
+
+// "16:9 · 1080p" style label for the frame size.
+export function formatLabel(w: number, h: number) {
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  const g = gcd(w, h) || 1;
+  const ratio = `${w / g}:${h / g}`;
+  const known = ["16:9", "9:16", "1:1", "4:5", "4:3", "21:9"].includes(ratio) ? ratio : (w / h).toFixed(2);
+  return `${known} · ${Math.min(w, h)}p`;
+}
 
 export const isVideoMedia = (info: MediaInfo) => Boolean(info?.video) || Boolean(info?.still);

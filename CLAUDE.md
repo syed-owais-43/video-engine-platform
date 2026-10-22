@@ -8,15 +8,16 @@ not a developer unless they say otherwise. Also read `AGENTS.md` before changing
 1. Read `README.md` fully (the installation guide), then `docs/TECHNICAL.md` for technical details.
 2. Work through the README's steps **one at a time**. Say what each step is for in one sentence, do the technical parts
    yourself where you have a terminal, and tell the owner exactly what to click in third-party dashboards (Supabase,
-   Vercel, Stripe, fal.ai, Google Cloud, npm). Wait for them to confirm before moving on.
+   Vercel, Stripe, Google Cloud, npm). Wait for them to confirm before moving on.
 3. Ask before anything that costs money, publishes something or can't be undone: deploying, publishing to npm, connecting
-   live Stripe keys, enabling paid image generation.
+   live Stripe keys.
 4. Keep a short checklist of what's done so the owner can stop and resume.
 
 ## Secrets: never in chat, never in git
 
 - Never ask the owner to paste API keys, passwords, connection strings or the setup code into the chat.
-- Stripe, fal.ai and Google keys go into **the site's admin panel** (Admin → Settings), where they are encrypted.
+- Stripe and Google keys go into **the site's admin panel** (Admin → Settings), where they are encrypted. Customers'
+  own ElevenLabs keys go into their dashboard (also encrypted).
 - `DATABASE_URL`, `APP_SECRET`, `APP_URL` go into **Vercel's Environment Variables**. You may generate `APP_SECRET` in a
   terminal for them to copy, but don't echo existing secrets back.
 - **This repository is public.** Never commit `.env*` files, the `.data/` folder, connection strings, keys, or any engine
@@ -37,14 +38,17 @@ not a developer unless they say otherwise. Also read `AGENTS.md` before changing
 
 ## Where things are (for code changes)
 
-- `src/app/`: `admin/` (panel), `setup/` (first-run), `dashboard/`, `pricing/`, `editor/` (timeline editor),
-  `api/mcp` (MCP endpoint), `api/stripe/webhook`, `oauth/` and `api/oauth/` (OAuth for AI clients).
-- `src/lib/`: `settings.ts` (encrypted admin settings), `mcp-server.ts` (tools the customer's AI gets), `credits.ts`,
-  `images.ts` (fal.ai), `stripe*.ts`, `engines.ts`, `access.ts` (subscription checks), `setup.ts`.
-- `shared/framewright-tools/`: guides and scripts every engine gets (editable export, editor, MP4 composer).
+- `src/app/`: `admin/` (panel, incl. `styles/`, `inspiration/`, `packs/`), `setup/` (first-run), `dashboard/`, `pricing/`,
+  `styles/` and `inspiration/` (public galleries), `editor/` (timeline editor; `scene-panel.tsx` = scene sliders),
+  `api/files` (library files), `api/voice/tts` (ElevenLabs proxy), `api/admin/upload` (Vercel Blob uploads), `api/mcp` (MCP endpoint), `api/stripe/webhook`, `oauth/` and `api/oauth/` (OAuth for AI clients).
+- `src/lib/`: `settings.ts` (encrypted admin settings), `mcp-server.ts` (tools the customer's AI gets), `library.ts`
+  (styles, inspiration, packs), `storage.ts` (Vercel Blob or database), `voice.ts` (Voicebox / ElevenLabs), `stripe*.ts`,
+  `engines.ts`, `access.ts` (subscription checks), `setup.ts`, `shared-tools.ts` (`SETUP_VERSION`).
+- `shared/framewright-tools/`: guides and scripts every engine gets (editable export, editor, scene sliders, computer
+  setup checklist, voice, MP4 composer).
 - `companion/`: the npm package customers run locally.
 - Database schema: `src/db/schema.ts`; after changing it run `npm run db:generate` and commit the new file in `drizzle/`.
-  Deploys apply migrations automatically.
+  Deploys apply migrations automatically. After a release that adds tables, re-run the README's row-level-security snippet.
 - Checks before deploying: `npx tsc --noEmit`, `npx eslint src`, `npm run build`.
 - This uses Next.js 16. Read the docs in `node_modules/next/dist/docs/` before changing framework code; APIs differ from
   older Next.js versions.

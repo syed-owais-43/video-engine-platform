@@ -1,17 +1,16 @@
-import { and, count, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { plans, subscriptions, usageEvents, type Plan, type User } from "@/db/schema";
+import { plans, subscriptions, type Plan, type User } from "@/db/schema";
 
 export const ACTIVE_STATUSES = ["active", "trialing"];
+// Logged for analytics only: one flat subscription, no per-plan video limits (videos render on the
+// user's own computer, so they cost the site nothing).
 export const PROJECT_TOOL = "start_project";
 
 export type Access = {
   active: boolean;
   source: "comp" | "subscription" | null;
   plan: Plan | null;
-  limit: number | null; // projects per period; null = unlimited
-  used: number;
-  periodStart: Date;
   periodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
   status: string | null;
@@ -26,11 +25,6 @@ export function planForPrice(priceId: string) {
     .limit(1);
 }
 
-function monthStart() {
-  const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-}
-
 export async function getAccess(user: Pick<User, "id" | "compAccess">): Promise<Access> {
   const [sub] = await db
     .select()
@@ -41,27 +35,10 @@ export async function getAccess(user: Pick<User, "id" | "compAccess">): Promise<
   const subActive = !!sub && ACTIVE_STATUSES.includes(sub.status);
   const [plan] = subActive ? await planForPrice(sub.priceId) : [];
 
-  const periodStart = (subActive && sub.currentPeriodStart) || monthStart();
-  const [{ n }] = await db
-    .select({ n: count() })
-    .from(usageEvents)
-    .where(and(eq(usageEvents.userId, user.id), eq(usageEvents.tool, PROJECT_TOOL), gte(usageEvents.createdAt, periodStart)));
-
-  const base = { used: n, periodStart, status: sub?.status ?? null, cancelAtPeriodEnd: sub?.cancelAtPeriodEnd ?? false };
-  if (user.compAccess) {
-    return { ...base, active: true, source: "comp", plan: plan ?? null, limit: null, periodEnd: null };
-  }
-  if (subActive) {
-    return {
-      ...base,
-      active: true,
-      source: "subscription",
-      plan: plan ?? null,
-      limit: plan?.monthlyProjects ?? null,
-      periodEnd: sub.currentPeriodEnd,
-    };
-  }
-  return { ...base, active: false, source: null, plan: null, limit: null, periodEnd: null };
+  const base = { status: sub?.status ?? null, cancelAtPeriodEnd: sub?.cancelAtPeriodEnd ?? false };
+  if (user.compAccess) return { ...base, active: true, source: "comp", plan: plan ?? null, periodEnd: null };
+  if (subActive) return { ...base, active: true, source: "subscription", plan: plan ?? null, periodEnd: sub.currentPeriodEnd };
+  return { ...base, active: false, source: null, plan: null, periodEnd: null };
 }
 
 export async function activeSubscriberIds(): Promise<Set<string>> {

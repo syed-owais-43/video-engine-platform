@@ -1,14 +1,13 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { creditPacks, plans, type CreditPack, type Plan } from "@/db/schema";
+import { plans, type Plan } from "@/db/schema";
 import { baseUrl } from "./config";
 import { getSettings, saveSection } from "./settings";
 import { stripe } from "./stripe";
 
 export const WEBHOOK_EVENTS = [
   "checkout.session.completed",
-  "checkout.session.async_payment_succeeded",
   "customer.subscription.created",
   "customer.subscription.updated",
   "customer.subscription.deleted",
@@ -40,8 +39,7 @@ export async function connectStripe(secretKey: string): Promise<{ ok: true; summ
     const accountKey = `${account.id}:${mode}`;
     if (current.accountKey && current.accountKey !== accountKey) {
       await db.update(plans).set({ stripeProductId: null, stripePriceId: null, legacyPriceIds: [] });
-      await db.update(creditPacks).set({ stripeProductId: null, stripePriceId: null });
-      parts.push("This is a different Stripe account or mode, so press “Publish to Stripe” on each plan and save each credit pack again.");
+      parts.push("This is a different Stripe account or mode, so press “Publish to Stripe” on each plan again.");
     }
     await saveSection("stripe", { ...(await getSettings()).stripe, secretKey, accountKey, ...(current.accountKey !== accountKey ? { webhookSecret: "", webhookEndpointId: "" } : {}) });
 
@@ -120,12 +118,4 @@ export async function syncPlanToStripe(plan: Plan) {
     })
     .where(eq(plans.id, plan.id));
   return { priceId, replaced };
-}
-
-export async function syncPackToStripe(pack: CreditPack) {
-  if (pack.priceCents <= 0) throw new Error("Set a price above zero before publishing to Stripe.");
-  const productId = await ensureProduct(pack.stripeProductId, pack.name, `${pack.credits} credits`);
-  const { priceId } = await ensurePrice(productId, pack.stripePriceId, pack.priceCents, pack.currency, false);
-  await db.update(creditPacks).set({ stripeProductId: productId, stripePriceId: priceId }).where(eq(creditPacks.id, pack.id));
-  return priceId;
 }
