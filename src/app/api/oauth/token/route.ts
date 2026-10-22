@@ -14,7 +14,17 @@ async function readParams(req: Request): Promise<URLSearchParams> {
   return new URLSearchParams(await req.text());
 }
 
+// OAuth clients expect a JSON error body even on failures, so unexpected errors become server_error.
 export async function POST(req: Request) {
+  try {
+    return await handleToken(req);
+  } catch (e) {
+    console.error("OAuth token endpoint failed:", e);
+    return oauthError("server_error", "The sign-in server hit an internal error. Try again.", 500);
+  }
+}
+
+async function handleToken(req: Request) {
   const p = await readParams(req);
   const grant = p.get("grant_type");
   const clientId = p.get("client_id");
