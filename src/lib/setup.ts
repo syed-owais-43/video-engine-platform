@@ -62,7 +62,7 @@ export async function seedDefaultPlans() {
     priceCents: 599,
     priceLabel: "$5.99 / month",
     commercialUse: true,
-    features: ["Style and inspiration libraries", "Sound effects, fonts, textures and Lottie packs", "Timeline editor with scene sliders", "Export to Premiere, DaVinci Resolve and Final Cut"],
+    features: ["Style library", "Sound effects, fonts, textures and Lottie packs", "Timeline editor with scene sliders", "Export to Premiere, DaVinci Resolve and Final Cut"],
     sort: 1,
   });
 }

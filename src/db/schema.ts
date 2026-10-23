@@ -115,14 +115,14 @@ export const engineFiles = pgTable(
   (t) => [uniqueIndex("engine_files_version_path_idx").on(t.versionId, t.path)],
 );
 
-// Style library, inspiration library and resource packs. Each item is uploaded as a ZIP from the
-// admin panel. Styles and references are unpacked into library_files (Claude reads their text and
-// still frames through MCP); a resource pack is kept as one ZIP that the Companion installs locally.
+// Style library and resource packs. Each item is uploaded as a ZIP from the admin panel. Styles are
+// unpacked into library_files (Claude reads their text and still frames through MCP); a resource pack
+// is kept as one ZIP that the Companion installs locally.
 export const libraryItems = pgTable(
   "library_items",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    kind: text("kind", { enum: ["style", "ref", "pack"] }).notNull(),
+    kind: text("kind", { enum: ["style", "pack"] }).notNull(),
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
@@ -132,7 +132,7 @@ export const libraryItems = pgTable(
     version: integer("version").notNull().default(1),
     // style.json for styles; { category } for packs.
     meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
-    // recipe.md (styles) or breakdown.md (references).
+    // recipe.md (styles).
     notes: text("notes").notNull().default(""),
     sort: integer("sort").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

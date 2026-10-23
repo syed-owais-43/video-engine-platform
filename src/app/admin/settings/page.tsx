@@ -25,7 +25,7 @@ function Step({ done, children, optional }: { done: boolean; children: React.Rea
 export default async function AdminSettings(props: PageProps<"/admin/settings">) {
   const welcome = (await props.searchParams).welcome === "1";
   const s = await getSettings();
-  const shelf = (kind: "style" | "ref" | "pack") =>
+  const shelf = (kind: "style" | "pack") =>
     db.select({ n: count() }).from(libraryItems).where(and(eq(libraryItems.kind, kind), eq(libraryItems.published, true)));
   const [[{ published }], [{ priced }], [styles], [packs]] = await Promise.all([
     db.select({ published: count() }).from(engines).where(eq(engines.published, true)),

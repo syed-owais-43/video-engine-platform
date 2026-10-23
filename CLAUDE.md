@@ -38,11 +38,11 @@ not a developer unless they say otherwise. Also read `AGENTS.md` before changing
 
 ## Where things are (for code changes)
 
-- `src/app/`: `admin/` (panel, incl. `styles/`, `inspiration/`, `packs/`), `setup/` (first-run), `dashboard/`, `pricing/`,
-  `styles/` and `inspiration/` (public galleries), `editor/` (timeline editor; `scene-panel.tsx` = scene sliders),
+- `src/app/`: `admin/` (panel, incl. `styles/`, `packs/`), `setup/` (first-run), `dashboard/`, `pricing/`,
+  `styles/` (public gallery), `editor/` (timeline editor; `scene-panel.tsx` = scene sliders),
   `api/files` (library files), `api/voice/tts` (ElevenLabs proxy), `api/admin/upload` (Vercel Blob uploads), `api/mcp` (MCP endpoint), `api/stripe/webhook`, `oauth/` and `api/oauth/` (OAuth for AI clients).
 - `src/lib/`: `settings.ts` (encrypted admin settings), `mcp-server.ts` (tools the customer's AI gets), `library.ts`
-  (styles, inspiration, packs), `storage.ts` (Vercel Blob or database), `voice.ts` (Voicebox / ElevenLabs), `stripe*.ts`,
+  (styles, packs), `storage.ts` (Vercel Blob or database), `voice.ts` (Voicebox / ElevenLabs), `stripe*.ts`,
   `engines.ts`, `access.ts` (subscription checks), `setup.ts`, `shared-tools.ts` (`SETUP_VERSION`).
 - `shared/framewright-tools/`: guides and scripts every engine gets (editable export, editor, scene sliders, computer
   setup checklist, voice, MP4 composer).

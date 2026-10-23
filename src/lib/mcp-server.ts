@@ -30,7 +30,6 @@ import {
   signedFileUrl,
   type FileRef,
   type PackCategory,
-  type ShelfKind,
 } from "./library";
 import { listVoices, MAX_TTS_CHARS, signedTtsUrl, TTS_LINK_TTL, usesElevenlabs, elevenlabsKeyOf, ELEVENLABS_MODEL } from "./voice";
 
@@ -41,10 +40,12 @@ const text = (t: string, isError = false): ToolResult => ({ content: [{ type: "t
 // Contact sheets are sent to the AI as images. MCP responses go through a serverless function with a
 // response size limit, so very large sheets are linked instead.
 const MAX_INLINE_IMAGE = 1_500_000;
+// Markdown notes shown in full by get_style (all together); anything beyond is linked instead.
+const MAX_INLINE_NOTES = 400_000;
 
 const serverInstructions = (brand: string) => `${brand} gives you everything to make expert-level videos that render on the user's own computer. Workflow:
 0. First time on this computer: call get_setup and install what it lists yourself (ffmpeg, Playwright + Chromium, Python models, Voicebox, yt-dlp). The user does nothing.
-1. Look: if the user picks a style (or describes one), call list_styles / get_style and build in exactly that look. If they send a reference video or link, download it with yt-dlp (see get_setup) and analyse it with the engine's tools; ready-made references are in list_refs / get_ref.
+1. Look: if the user picks a style (or describes one), call list_styles / get_style and build in exactly that look. If they send a reference video or link, download it with yt-dlp (see get_setup) and analyse it with the engine's tools: when the engine lists the guide reference/inspiration-analysis.md, read it with get_guide and follow it.
 2. Call start_project with the user's video idea. It picks the best engine and returns its entry instructions. Follow them; whenever they mention a file under reference/ (e.g. reference/visual-design.md), call get_guide to read it.
 3. Call get_scripts once per engine version to get the local helper bundle (scripts, templates), and get_assets for sound effects, fonts, textures and Lottie files. If the ${brand} Companion MCP server is connected, use its install_engine and get_assets tools instead (they download once to ~/.framewright).
 4. Voice-over: call get_voice (Voicebox on this PC by default, or the user's own ElevenLabs key).
@@ -236,22 +237,19 @@ export async function createMcpServer(userId: string) {
     },
   );
 
-  // ---------- style and inspiration libraries ----------
+  // ---------- style library ----------
 
-  async function shelfList(kind: ShelfKind, tag?: string) {
-    const shelf = SHELVES[kind];
-    const items = (await listItems(kind, { published: true })).filter(
+  async function styleList(tag?: string) {
+    const shelf = SHELVES.style;
+    const items = (await listItems("style", { published: true })).filter(
       (i) => !tag || i.tags.some((t) => t.toLowerCase().includes(tag.toLowerCase())) || i.name.toLowerCase().includes(tag.toLowerCase()),
     );
-    if (!items.length) return text(tag ? `No ${shelf.plural.toLowerCase()} match "${tag}".` : `No ${shelf.plural.toLowerCase()} are published yet.`);
+    if (!items.length) return text(tag ? `No styles match "${tag}".` : "No styles are published yet.");
     const lines = items.map((i) => {
-      const palette = kind === "style" ? paletteOf(i.meta) : [];
+      const palette = paletteOf(i.meta);
       return `- ${i.slug}: ${i.name}. ${i.description}${i.tags.length ? ` Tags: ${i.tags.join(", ")}.` : ""}${palette.length ? ` Palette: ${palette.join(" ")}.` : ""}`;
     });
-    return text(
-      `${shelf.plural} on ${brand} (the user can browse them at ${baseUrl()}${shelf.path}):\n${lines.join("\n")}\n\n` +
-        `Call ${kind === "style" ? "get_style" : "get_ref"} with an id to load one.`,
-    );
+    return text(`${shelf.plural} on ${brand} (the user can browse them at ${baseUrl()}${shelf.path}):\n${lines.join("\n")}\n\nCall get_style with an id to load one.`);
   }
 
   async function sheetImages(files: FileRef[], groups: readonly (readonly string[])[], labels: string[]) {
@@ -270,10 +268,33 @@ export async function createMcpServer(userId: string) {
     return { images: out, notes };
   }
 
+  // Every Markdown note besides recipe.md (breakdown.md, prompts.md, …) goes into the answer itself:
+  // an AI given only a download link for them tends to skip them.
+  async function inlineNotes(files: FileRef[]) {
+    const order = (p: string) => (p === "breakdown.md" ? 0 : p === "prompts.md" ? 1 : 2);
+    const docs = files
+      .filter((f) => f.path.toLowerCase().endsWith(".md") && f.path !== SHELVES.style.notes)
+      .sort((a, b) => order(a.path) - order(b.path) || a.path.localeCompare(b.path));
+    const parts: string[] = [];
+    let budget = MAX_INLINE_NOTES;
+    const linked: FileRef[] = [];
+    for (const f of docs) {
+      if (f.size > budget) {
+        linked.push(f);
+        continue;
+      }
+      const bytes = await fileBytes(f.id);
+      if (!bytes) continue;
+      budget -= f.size;
+      parts.push(`## ${f.path}\n${bytes.toString("utf8").trim()}\n`);
+    }
+    return { text: parts.join("\n"), inlined: docs.filter((d) => !linked.includes(d)).map((d) => d.path) };
+  }
+
   function downloadList(item: LibraryItem, files: FileRef[], skip: string[]) {
     const extra = files.filter((f) => !skip.includes(f.path));
     if (!extra.length) return "";
-    const base = `assets/${item.kind === "style" ? "style" : "ref"}/${item.slug}`;
+    const base = `assets/style/${item.slug}`;
     return (
       `\n## Files (download into the project, under ${base}/; links expire in ${FILE_LINK_TTL / 60} minutes, don't share them)\n` +
       extra.map((f) => `- ${f.path} (${kb(f.size)}): ${signedFileUrl(f.id, userId)}`).join("\n") +
@@ -293,7 +314,7 @@ export async function createMcpServer(userId: string) {
     },
     async ({ tag }) => {
       if (!(await requireActive())) return subscribeMessage();
-      return withSetup(await shelfList("style", tag));
+      return withSetup(await styleList(tag));
     },
   );
 
@@ -302,8 +323,8 @@ export async function createMcpServer(userId: string) {
     {
       title: "Load a style",
       description:
-        "Load one style: style.json (palette hex codes, fonts, sizes, easing, timings, SFX names), recipe.md (the rules in plain words) and its contact sheet image. Build the video in exactly this look.",
-      inputSchema: { id: z.string().min(1).max(80).describe("Style id from list_styles, e.g. clean-premium-saas") },
+        "Load one style: style.json (palette hex codes, fonts, sizes, easing, timings, SFX names), recipe.md (the rules in plain words), its other notes (e.g. breakdown.md, prompts.md) and its contact sheet image. Build the video in exactly this look.",
+      inputSchema: { id: z.string().min(1).max(80).describe("Style id from list_styles, e.g. editorial-explainer") },
       annotations: { readOnlyHint: true },
     },
     async ({ id }) => {
@@ -312,61 +333,20 @@ export async function createMcpServer(userId: string) {
       if (!item) return text(`No published style "${id}". Call list_styles for the ids.`, true);
       const files = await filesOf([item.id]);
       const { images, notes } = await sheetImages(files, SHELVES.style.frames, ["Contact sheet: key frames of this style"]);
+      const docs = await inlineNotes(files);
       await logUsage(userId, "get_style", null, item.slug);
-      const preview = findPath(files, SHELVES.style.video);
+      const shown = ["style.json", SHELVES.style.notes, ...docs.inlined];
       const head =
         `# Style: ${item.name} (${item.slug}, v${item.version})\n${item.description}\n\n` +
         `Build every scene in exactly this look: follow recipe.md's rules, take colours, fonts, sizes, easing, timings and SFX ` +
         `names from style.json, and match the contact sheet. Where the engine's own design guidance disagrees, the style wins. ` +
-        `Expose the style's palette as colour swatches when you write scene.params.json.\n\n` +
-        `## style.json\n\`\`\`json\n${JSON.stringify(item.meta, null, 2)}\n\`\`\`\n\n## recipe.md\n${item.notes}\n` +
-        downloadList(item, files, ["style.json", "recipe.md", ...SHELVES.style.frames.flat(), ...SHELVES.style.video]) +
-        (preview ? `\nGallery preview for the user: ${baseUrl()}${SHELVES.style.path}#${item.slug}\n` : "") +
-        (notes.length ? `\n${notes.join("\n")}\n` : "");
-      return withSetup({ content: [{ type: "text", text: head }, ...images] });
-    },
-  );
-
-  server.registerTool(
-    "list_refs",
-    {
-      title: "List inspiration references",
-      description: `List ${brand}'s inspiration library: analysed reference videos (shot-by-shot breakdowns). Optional filter by tag or word.`,
-      inputSchema: { tag: z.string().max(60).optional().describe("Filter, e.g. 'recap', 'product launch'") },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ tag }) => {
-      if (!(await requireActive())) return subscribeMessage();
-      return withSetup(await shelfList("ref", tag));
-    },
-  );
-
-  server.registerTool(
-    "get_ref",
-    {
-      title: "Load an inspiration reference",
-      description:
-        "Load one reference: breakdown.md (shot-by-shot timeline, type system, motion, SFX map), its contact sheet and the first 3 seconds frame by frame, and a private link to the original video when available.",
-      inputSchema: { id: z.string().min(1).max(80).describe("Reference id from list_refs") },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ id }) => {
-      if (!(await requireActive())) return subscribeMessage();
-      const item = await getItem("ref", id);
-      if (!item) return text(`No published reference "${id}". Call list_refs for the ids.`, true);
-      const files = await filesOf([item.id]);
-      const { images, notes } = await sheetImages(files, SHELVES.ref.frames, ["Contact sheet: key frames", "Hook: the first 3 seconds, frame by frame"]);
-      const video = findPath(files, SHELVES.ref.video);
-      await logUsage(userId, "get_ref", null, item.slug);
-      const head =
-        `# Reference: ${item.name} (${item.slug})\n${item.description}\n\n` +
-        `Use it as a blueprint for structure, pacing, type system, motion and sound, rebuilt with the user's own content. ` +
-        `Never copy its footage, logos, music or exact wording into the user's video.\n\n## breakdown.md\n${item.notes}\n` +
-        (video
-          ? `\n## Original video (private to subscribers; for analysis only, don't redistribute or reuse its footage)\n` +
-            `${video.path} (${kb(video.size)}), link valid ${FILE_LINK_TTL / 60} minutes: ${signedFileUrl(video.id, userId)}\n`
-          : "") +
-        downloadList(item, files, ["breakdown.md", ...SHELVES.ref.frames.flat(), ...SHELVES.ref.video]) +
+        `Expose the style's palette as colour swatches when you write scene.params.json.\n` +
+        `Read everything below before building. ${shown.join(", ")} ${shown.length > 1 ? "are" : "is"} included here in full, so don't download ` +
+        `${shown.length > 1 ? "them" : "it"} even where the recipe says to; download only the files listed under "Files".\n\n` +
+        `## style.json\n\`\`\`json\n${JSON.stringify(item.meta, null, 2)}\n\`\`\`\n\n## recipe.md\n${item.notes}\n\n` +
+        docs.text +
+        downloadList(item, files, [...shown, ...SHELVES.style.frames.flat(), ...SHELVES.style.video, ...SHELVES.style.cover]) +
+        `\nGallery page for the user: ${baseUrl()}${SHELVES.style.path}#${item.slug}\n` +
         (notes.length ? `\n${notes.join("\n")}\n` : "");
       return withSetup({ content: [{ type: "text", text: head }, ...images] });
     },

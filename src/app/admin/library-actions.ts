@@ -17,7 +17,7 @@ const list = (v: FormDataEntryValue | null) =>
     .map((s) => s.trim())
     .filter(Boolean);
 
-const adminPath = (kind: ShelfKind | "pack") => (kind === "pack" ? "/admin/packs" : kind === "style" ? "/admin/styles" : "/admin/inspiration");
+const adminPath = (kind: ShelfKind | "pack") => (kind === "pack" ? "/admin/packs" : "/admin/styles");
 
 function refresh(kind: ShelfKind | "pack") {
   revalidatePath(adminPath(kind));
@@ -42,12 +42,10 @@ async function fromBlob(url: string) {
   return head(url);
 }
 
-const shelfKind = (v: FormDataEntryValue | null): ShelfKind => (v === "ref" ? "ref" : "style");
-
 // Small ZIPs (or any size when testing locally) come through the form itself.
 export async function uploadShelfItem(_: LibraryFormState, form: FormData): Promise<LibraryFormState> {
   await requireAdmin();
-  const kind = shelfKind(form.get("kind"));
+  const kind: ShelfKind = "style";
   const label = SHELVES[kind].label.toLowerCase();
   try {
     const opts = { kind, slug: String(form.get("slug") ?? "").trim() || undefined, tags: list(form.get("tags")), publish: form.get("publish") === "on" };

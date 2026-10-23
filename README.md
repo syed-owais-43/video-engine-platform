@@ -5,12 +5,12 @@ A subscription website that lets people make professional videos with **their ow
 Customers connect Claude Code, Claude Desktop, Cursor or any MCP-capable AI to your site. They describe a video; their AI
 fetches the right video engine from your site and builds the video **on their own computer**. They pay you one flat monthly
 subscription (Stripe). On first use their AI sets up their computer by itself. It builds in a look from your **style
-library** or **inspiration library** (or from a reference video or link they send), uses your **resource packs** (sound
+library** (or from a reference video or link they send), uses your **resource packs** (sound
 effects, fonts, textures, Lottie) and narrates with Voicebox (free, local) or the customer's own ElevenLabs key. Customers
 fine-tune each scene with sliders in a browser editor without spending AI tokens, and export to MP4, Premiere Pro, DaVinci
 Resolve or Final Cut Pro.
 
-You run everything from an **admin panel**: brand, payments, plan, engines, styles, inspiration, packs, users and analytics.
+You run everything from an **admin panel**: brand, payments, plan, engines, styles, packs, users and analytics.
 
 > **Setting this up with Claude?** Open this repository in Claude Code and say:
 > *"Read README.md and CLAUDE.md, then guide me through installing and launching this step by step."*
@@ -183,30 +183,31 @@ client ID (Web application). Paste the client ID and secret, save.
 **Admin → Engines** → upload the engine ZIP, version (e.g. `3.5.3`), tags (e.g. *motion graphics, kinetic typography,
 explainer, promo*), tick **Publish engine**. New engines and versions are uploaded the same way.
 
-### Styles and inspiration
-Customers' AI learns a look from text and a few still frames; the videos are mainly for people browsing your galleries
-(`/styles` and `/inspiration` on your site). Each item is one folder, uploaded as a ZIP.
+### Styles
+Customers' AI learns a look from text and a few still frames. The gallery at `/styles` on your site is for people browsing.
+Each style is one folder, uploaded as a ZIP (example: `editorial-explainer/`):
 
-| Style, e.g. `clean-premium-saas/` | What it is |
-|---|---|
-| `preview.mp4` | a 5–10 s example, shown in the gallery |
-| `style.json` | palette hex codes, fonts, sizes, easing, timings, SFX names |
-| `recipe.md` | the rules in plain words: how text enters, transitions, dos and don'ts |
-| `frames.jpg` | one contact sheet (key frames in a grid), under 1.5 MB |
-| `fonts/`, `sfx/` | the files the style uses (optional) |
+| File | Who it's for | What it is |
+|---|---|---|
+| `style.json` | the AI, scene sliders | palette hex codes, fonts, sizes, easing, timings, SFX names, tags |
+| `recipe.md` | the AI | the rules in plain words: how text enters, transitions, dos and don'ts |
+| `frames.jpg` | the AI, subscribers | contact sheet (key frames on top, motion strips below), under 1.5 MB |
+| `breakdown.md`, `prompts.md`, other `.md` | the AI | shot-by-shot breakdown, image-prompt templates, any other notes (optional) |
+| `fonts/`, `sfx/` | the engine | the files the style uses (optional) |
+| `preview.mp4` | gallery visitors | a 5–10 s example (optional) |
+| `cover.jpg` | gallery visitors | a 16:9 cover image (optional) |
 
-| Inspiration, e.g. `apple-recap-kinetic/` | What it is |
-|---|---|
-| `reference.mp4` | the original video, visible to subscribers only (optional, see the licence note) |
-| `breakdown.md` | shot-by-shot timeline, type system, motion, SFX map |
-| `frames.jpg` + `hook.jpg` | contact sheet + the first 3 seconds frame by frame |
+- The AI receives `style.json` and every Markdown note in full, plus the contact sheet as an image.
+- **The contact sheet is subscribers-only**, because it can contain frames from other creators' videos. Visitors see the
+  `preview.mp4`, else the `cover.jpg`, else a card drawn from the style's palette. Add a `cover.jpg` or `preview.mp4` you own
+  so the gallery looks good.
+- Tags come from `style.json` unless you type others when uploading.
 
 **Making one:** give Claude a reference video (a file, or a link: it downloads it with yt-dlp). The motion engine's analysis
-(`analyze_ref.py`) makes the contact sheets and the breakdown; Claude writes `style.json` and `recipe.md` and zips the
-folder. Upload it in **Admin → Styles** or **Admin → Inspiration** and tick **Publish**. No coding needed. Uploading a folder
-with the same name again replaces it.
+makes the contact sheet and the breakdown; Claude writes `style.json` and `recipe.md` and zips the folder. Upload it in
+**Admin → Styles** and tick **Publish**. No coding needed. Uploading a folder with the same name again replaces it.
 
-> **Licence:** only include a `reference.mp4` you have the rights to publish. Otherwise ship the frames and breakdown only.
+> **Licence:** only publish videos and images you have the rights to.
 
 ### Resource packs
 **Admin → Packs** → upload a ZIP of sound effects, fonts, textures, Lottie animations or music, with a name, a category and a
@@ -264,7 +265,7 @@ To release an update: bump `"version"` in `companion/package.json` and run `npm 
 | Someone forgot their password | Admin → Users → **Reset password**, then send them the temporary password |
 | Make someone an admin | Admin → Users → **Admin** |
 | Price and plan features | Admin → Plans |
-| New style, reference or pack | Admin → Styles / Inspiration / Packs → upload ZIP, tick Published |
+| New style or pack | Admin → Styles / Packs → upload ZIP, tick Published |
 | Refunds, cancellations, invoices | Stripe Dashboard (customers can also cancel from their dashboard) |
 | New engine or version | Admin → Engines → upload ZIP |
 | Roll back an engine | Admin → Engines → **Make current** on an older version |
@@ -289,7 +290,7 @@ Before deploying a code change, run locally: `npx tsc --noEmit`, `npx eslint src
 | Payments go through but subscriptions don't activate | Settings → Payments should show the webhook as set. In Stripe → Developers → Webhooks, the endpoint `https://<your-site>/api/stripe/webhook` should show successful deliveries. Reconnecting Stripe recreates it. |
 | "Stripe isn't connected" after changing `APP_SECRET` | Re-enter all keys in Settings. |
 | Customers' editor can't connect | They need the Companion running (the editor explains how), desktop Chrome, Edge or Firefox, and to allow "local network access" if asked. Safari isn't supported. |
-| "Uploads are limited to 4 MB" in Styles / Inspiration / Packs | Connect a Vercel Blob store (step 4.6) and redeploy. |
+| "Uploads are limited to 4 MB" in Styles / Packs | Connect a Vercel Blob store (step 4.6) and redeploy. |
 | `npx <companion> … 404 Not Found` | The Companion isn't published yet, or the name in Admin → Settings → Brand doesn't match npm (step 7). |
 
 ---

@@ -4,7 +4,7 @@ Local MCP server that lets Claude Desktop (and other chat apps without terminal 
 
 It connects to your Framewright account with an API key and gives the AI:
 
-- the Framewright tools (`list_engines`, `start_project`, `get_guide`, `list_styles`, `get_style`, `list_refs`, `get_ref`,
+- the Framewright tools (`list_engines`, `start_project`, `get_guide`, `list_styles`, `get_style`,
   `get_setup`, `finish_setup`, `get_voice`, `account_status`)
 - `install_engine`: downloads an engine's helper scripts to `~/.framewright/engines`
 - `get_assets`: installs the site's resource packs (sound effects, fonts, textures, Lottie) once into `~/.framewright/assets`

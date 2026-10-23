@@ -17,9 +17,9 @@ User's AI ──MCP (OAuth or API key)──▶ /api/mcp ──▶ start_project
 - **Scripts are local.** Everything else in the engine is a ZIP served from a 15-minute signed URL.
 - **Paywall:** one flat Stripe monthly subscription, no usage limits (videos render on the user's PC). Plans (price,
   usage rights, features) are managed in Admin → Plans and pushed to Stripe from there.
-- **Libraries:** styles, inspiration references and resource packs (`library_items` + `library_files`, `src/lib/library.ts`).
+- **Libraries:** styles and resource packs (`library_items` + `library_files`, `src/lib/library.ts`).
   Files live in Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set (`src/lib/storage.ts`), otherwise base64 in the database.
-  `/api/files/<id>` serves them: gallery previews of published items are public; everything else needs a signed link
+  `/api/files/<id>` serves them: `preview.*` and `cover.*` of published styles are public (the contact sheet is not); everything else needs a signed link
   (made per subscriber for their AI, 60 min) or a signed-in subscriber. Admin uploads go browser → Blob directly
   (`/api/admin/upload`, `@vercel/blob/client`) to avoid the serverless body limit.
 - **Computer setup:** until a user's AI calls `finish_setup`, every tool answer starts with the checklist from
@@ -118,8 +118,7 @@ talks straight to the Framewright Companion's **editor bridge** on `127.0.0.1` (
 | `start_project` | Picks an engine from the brief (keyword + tag match; optional `style`) and returns `SKILL.md` with a site preamble |
 | `get_guide` | Returns one `reference/*.md` file or a shared guide (`framewright/*.md`) |
 | `get_scripts` | Signed bundle URL + install commands |
-| `list_styles` / `get_style` | Style library; `get_style` returns style.json + recipe.md as text and the contact sheet as an image |
-| `list_refs` / `get_ref` | Inspiration library; breakdown.md, contact sheet + hook images, signed link to reference.mp4 |
+| `list_styles` / `get_style` | Style library; `get_style` returns style.json, recipe.md and every other `.md` note (breakdown.md, prompts.md…) as text, the contact sheet as an image, and signed links for fonts/SFX |
 | `get_assets` | Published resource packs (structured output: slug, version, folder, signed URL) |
 | `get_setup` / `finish_setup` | Computer setup checklist; `finish_setup` records `users.setup_version` |
 | `get_voice` | Voicebox instructions, or ElevenLabs voices + signed TTS link when the user saved a key |

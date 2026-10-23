@@ -1,14 +1,13 @@
 import { blobEnabled } from "@/lib/storage";
 import { filesOf, findPath, galleryFileUrl, listItems, PACK_CATEGORIES, PACK_LABELS, paletteOf, SHELVES, type LibraryKind } from "@/lib/library";
 import { removeLibraryItem, updateLibraryItem } from "./library-actions";
-import { DeleteItemButton, PackUploadForm, ShelfUploadForm } from "./library-forms";
+import { DeleteItemButton, PackUploadForm, StyleUploadForm } from "./library-forms";
 
 const mb = (n: number) => `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)} MB`;
 
 const INTRO: Record<LibraryKind, string> = {
   style:
-    "Looks your customers can pick (palette, type, motion, sound). Their AI loads style.json, recipe.md and the contact sheet through MCP and builds in exactly that look. Published styles appear in the public gallery.",
-  ref: "Analysed reference videos. Their AI reads the shot-by-shot breakdown and the frames; the original video (if included) is only available to subscribers. Only include reference.mp4 files you have the rights to publish; otherwise ship the frames and breakdown only.",
+    "Looks your customers can pick (palette, type, motion, sound). Their AI loads style.json, recipe.md, the other notes (breakdown.md, prompts.md) and the contact sheet through MCP and builds in exactly that look. Published styles appear in the public gallery with their preview video or cover image; the contact sheet stays subscribers-only because it can contain other creators' frames.",
   pack: "Sound effects, fonts, textures and Lottie files. Customers' Companion downloads each pack once into ~/.framewright/assets and their AI uses it in every video.",
 };
 
@@ -32,7 +31,7 @@ export async function LibraryAdmin({ kind }: { kind: LibraryKind }) {
         {kind === "pack" ? (
           <PackUploadForm blob={blob} maxMb={maxMb} categories={PACK_CATEGORIES.map((c) => ({ value: c, label: PACK_LABELS[c] }))} />
         ) : (
-          <ShelfUploadForm kind={kind} blob={blob} maxMb={maxMb} />
+          <StyleUploadForm blob={blob} maxMb={maxMb} />
         )}
       </section>
 
@@ -40,13 +39,13 @@ export async function LibraryAdmin({ kind }: { kind: LibraryKind }) {
 
       {items.map((item) => {
         const mine = files.filter((f) => f.itemId === item.id);
-        const thumb = kind === "pack" ? null : findPath(mine, SHELVES[kind].frames[0]);
+        const thumb = kind === "pack" ? null : (findPath(mine, SHELVES.style.cover) ?? findPath(mine, SHELVES.style.frames[0]));
         const palette = kind === "style" ? paletteOf(item.meta) : [];
         const size = mine.reduce((n, f) => n + f.size, 0);
         return (
           <section key={item.id} className="card">
             <div className="flex flex-wrap items-start gap-5">
-              {thumb && <img src={galleryFileUrl(thumb.id)} alt="" className="h-24 w-40 rounded-lg border border-line object-cover" />}
+              {thumb && <img src={galleryFileUrl(thumb.id)} alt="" className="h-24 w-40 rounded-lg border border-line object-cover object-top" />}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <h2 className="display text-3xl">{item.name}</h2>

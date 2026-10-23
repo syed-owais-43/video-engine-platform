@@ -144,7 +144,7 @@ const server = new McpServer(
   { name: "framewright-companion", version: VERSION },
   {
     instructions: `Framewright Companion. First time on this computer: call get_setup and install what it lists with run_command (the user does nothing), then finish_setup.
-Use list_styles/get_style (or list_refs/get_ref) for the look, start_project to begin a video, get_guide for reference/*.md files, install_engine to install an engine's local scripts, get_assets for sound effects, fonts, textures and Lottie files, and get_voice for the voice-over.
+Use list_styles/get_style for the look, start_project to begin a video, get_guide for reference/*.md files, install_engine to install an engine's local scripts, get_assets for sound effects, fonts, textures and Lottie files, and get_voice for the voice-over.
 When the user gives a video link as a reference, download it with download_video.
 Work inside the workspace folder ${WORKSPACE}: create one subfolder per video project. Use write_file/read_file/list_files for files and run_command for terminal commands (PowerShell on Windows, bash elsewhere).
 For long renders pass background=true and poll with job_status. Installed engines live in ${ENGINES_DIR} and resource packs in ${ASSETS_DIR} (both read-only).`,
@@ -173,7 +173,7 @@ server.registerTool(
     if (res.isError) return res;
     return text(
       `${remoteText(res)}\n\n---\nCompanion notes: install the engine with install_engine (not get_scripts) and packs with get_assets. ` +
-        `Create the project folder inside ${WORKSPACE}. Use download_file for links from get_style/get_ref.`,
+        `Create the project folder inside ${WORKSPACE}. Use download_file for links from get_style.`,
     );
   },
 );
@@ -208,10 +208,6 @@ passThrough(
   "Load one style: style.json, recipe.md and its contact sheet. Build the video in exactly that look. Save its files with download_file.",
   { id: z.string().min(1).max(80) },
 );
-passThrough("list_refs", "List inspiration references", "List analysed reference videos. Optional filter by tag or word.", { tag: z.string().max(60).optional() });
-passThrough("get_ref", "Load an inspiration reference", "Load one reference: shot-by-shot breakdown, contact sheets and a private link to the original.", {
-  id: z.string().min(1).max(80),
-});
 passThrough("get_setup", "Computer setup checklist", "The one-time setup checklist for this computer. Install everything with run_command, then call finish_setup.", {});
 passThrough("finish_setup", "Finish computer setup", "Report that the setup checklist is done on this computer.", { summary: z.string().min(2).max(1000) }, false);
 passThrough("get_voice", "Voice-over", "How to make the voice-over: Voicebox on this computer (default) or the user's own ElevenLabs key.", {});

@@ -55,8 +55,18 @@ Create one shared environment for {{BRAND}} and install the packages:
 ```
 python3 -m venv ~/.framewright/venv            # Windows: python -m venv "$env:USERPROFILE\.framewright\venv"
 ~/.framewright/venv/bin/python -m pip install -U pip
-~/.framewright/venv/bin/python -m pip install numpy pillow opencv-python-headless scenedetect librosa soundfile faster-whisper yt-dlp
+~/.framewright/venv/bin/python -m pip install numpy opencv-python scipy pillow scenedetect librosa soundfile faster-whisper yt-dlp
 ```
+
+The engine's reference-analysis scripts also need `numpy opencv-python scipy pillow` in the `python` they're run with.
+Install them for the user's main Python as well:
+
+```
+python -m pip install --user numpy opencv-python scipy pillow      # macOS / Linux: python3 -m pip …
+```
+
+If pip refuses with "externally-managed-environment" (Homebrew or Debian Python), skip this and run those scripts with the
+{{BRAND}} Python instead (`~/.framewright/venv/bin/python`, Windows `~\.framewright\venv\Scripts\python.exe`).
 
 On Windows the interpreter is `~\.framewright\venv\Scripts\python.exe`. Then download the speech model once (used for
 word-timed captions and transcribing references):

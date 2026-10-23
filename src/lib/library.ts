@@ -8,18 +8,17 @@ import { sign, verifySignature } from "./crypto";
 import { filesFromZip, type IncomingFile } from "./engine-files";
 import { contentTypeFor, knownType, readStored, removeStored, storeFile } from "./storage";
 
-// The style library, the inspiration library and resource packs.
+// The style library and resource packs.
 //
-// Style (e.g. clean-premium-saas/): preview.mp4 (gallery), style.json (palette, fonts, sizes, easing,
-// timings, SFX names), recipe.md (the rules in plain words), frames.jpg (contact sheet), optional
-// fonts/ and sfx/ with the files the style uses.
-// Inspiration (e.g. apple-recap-kinetic/): reference.mp4 (subscribers only, optional), breakdown.md
-// (shot-by-shot), frames.jpg (contact sheet), hook.jpg (the first 3 seconds frame by frame).
+// Style (e.g. editorial-explainer/): style.json (palette, fonts, sizes, easing, timings, SFX names),
+// recipe.md (the rules in plain words), frames.jpg (contact sheet), optional breakdown.md, prompts.md
+// and other notes, optional preview.mp4 / cover.jpg for the gallery, and fonts/ and sfx/ with the
+// files the style uses.
 // Resource pack: a ZIP of SFX, fonts, textures or Lottie files that the Companion installs once into
 // ~/.framewright/assets.
 //
-// Claude learns a look from text and a few still frames, so MCP returns style.json + recipe.md (or
-// breakdown.md) as text and the contact sheets as images. Videos are mainly for people browsing.
+// Claude learns a look from text and a few still frames, so MCP returns style.json and every Markdown
+// note as text and the contact sheet as an image. Videos and covers are mainly for people browsing.
 
 export type LibraryKind = LibraryItem["kind"];
 export type ShelfKind = Exclude<LibraryKind, "pack">;
@@ -38,19 +37,10 @@ export const SHELVES = {
     required: ["style.json", "recipe.md"],
     frames: [variants("frames", IMAGE)],
     video: variants("preview", VIDEO),
-    // Shown in the public gallery once the item is published.
-    public: [...variants("preview", VIDEO), ...variants("frames", IMAGE)],
-  },
-  ref: {
-    label: "Reference",
-    plural: "Inspiration",
-    path: "/inspiration",
-    meta: null,
-    notes: "breakdown.md",
-    required: ["breakdown.md"],
-    frames: [variants("frames", IMAGE), variants("hook", IMAGE)],
-    video: variants("reference", VIDEO),
-    public: [...variants("frames", IMAGE), ...variants("hook", IMAGE)],
+    cover: variants("cover", IMAGE),
+    // Shown in the public gallery once the item is published. The contact sheet is not: it can hold
+    // frames from other creators' videos, so only subscribers (and their AI) get it.
+    public: [...variants("preview", VIDEO), ...variants("cover", IMAGE)],
   },
 } as const;
 
@@ -103,7 +93,7 @@ const pick = (paths: string[], names: readonly string[]) => names.find((n) => pa
 
 export type ImportResult = { item: LibraryItem; files: number; skipped: string[] };
 
-// Imports (or replaces) a style or reference from its ZIP.
+// Imports (or replaces) a style from its ZIP.
 export async function importShelfZip(input: {
   kind: ShelfKind;
   zip: Buffer;
@@ -132,6 +122,9 @@ export async function importShelfZip(input: {
   const str = (k: string) => (typeof meta[k] === "string" ? (meta[k] as string) : "");
   const slug = slugify(input.slug || str("id") || str("slug") || folder || "");
   if (!slug) throw new Error("Name the folder inside the ZIP (e.g. clean-premium-saas) or enter a slug.");
+  // Tags typed in the admin panel win; otherwise use the ones in style.json.
+  const metaTags = Array.isArray(meta.tags) ? meta.tags.filter((t): t is string => typeof t === "string").map((t) => t.trim()).filter(Boolean).slice(0, 20) : [];
+  const tags = input.tags?.length ? input.tags : metaTags;
 
   const stored: { path: string; size: number; contentType: string; url: string | null; data: string | null }[] = [];
   for (const f of files) {
@@ -154,14 +147,14 @@ export async function importShelfZip(input: {
           .set({
             ...values,
             version: existing.version + 1,
-            ...(input.tags?.length ? { tags: input.tags } : {}),
+            ...(tags.length ? { tags } : {}),
             ...(input.publish ? { published: true } : {}),
           })
           .where(eq(libraryItems.id, existing.id))
           .returning()
       : await tx
           .insert(libraryItems)
-          .values({ kind: input.kind, slug, ...values, tags: input.tags ?? [], published: Boolean(input.publish) })
+          .values({ kind: input.kind, slug, ...values, tags, published: Boolean(input.publish) })
           .returning();
     const old = await tx.select({ url: libraryFiles.url }).from(libraryFiles).where(eq(libraryFiles.itemId, item.id));
     await tx.delete(libraryFiles).where(eq(libraryFiles.itemId, item.id));

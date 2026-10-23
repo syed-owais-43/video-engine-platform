@@ -40,39 +40,29 @@ function useZipUpload(action: (s: LibraryFormState, f: FormData) => Promise<Libr
   return { state, run, busy: pending || progress !== null, label };
 }
 
-export function ShelfUploadForm({ kind, blob, maxMb }: { kind: "style" | "ref"; blob: boolean; maxMb: number }) {
+export function StyleUploadForm({ blob, maxMb }: { blob: boolean; maxMb: number }) {
   const { state, run, busy, label } = useZipUpload(uploadShelfItem, blob);
-  const example = kind === "style" ? "clean-premium-saas" : "apple-recap-kinetic";
   return (
     <form action={run} className="grid gap-4 md:grid-cols-2">
-      <input type="hidden" name="kind" value={kind} />
       <div className="md:col-span-2">
-        <label className="label" htmlFor={`zip-${kind}`}>
-          {kind === "style" ? "Style" : "Reference"} ZIP
-        </label>
-        <input id={`zip-${kind}`} name="zip" type="file" accept=".zip" required className="input file:mr-3 file:rounded-full file:border-0 file:bg-ink-3 file:px-3 file:py-1 file:text-paper" />
+        <label className="label" htmlFor="zip-style">Style ZIP</label>
+        <input id="zip-style" name="zip" type="file" accept=".zip" required className="input file:mr-3 file:rounded-full file:border-0 file:bg-ink-3 file:px-3 file:py-1 file:text-paper" />
         <p className="mt-1 text-xs text-faint">
-          One folder, e.g. <code>{example}/</code>, containing{" "}
-          {kind === "style" ? (
-            <>
-              <code>style.json</code>, <code>recipe.md</code>, <code>frames.jpg</code>, <code>preview.mp4</code> and optionally <code>fonts/</code>, <code>sfx/</code>
-            </>
-          ) : (
-            <>
-              <code>breakdown.md</code>, <code>frames.jpg</code>, <code>hook.jpg</code> and, only if you have the rights to it, <code>reference.mp4</code>
-            </>
-          )}
-          . Keep contact sheets under 1.5 MB. Uploading the same folder name again replaces it.
+          One folder, e.g. <code>editorial-explainer/</code>, containing <code>style.json</code>, <code>recipe.md</code> and{" "}
+          <code>frames.jpg</code>. Optional: <code>breakdown.md</code>, <code>prompts.md</code> and other notes (shown to your
+          customers&apos; AI in full), <code>fonts/</code>, <code>sfx/</code>, a <code>preview.mp4</code> and a <code>cover.jpg</code>{" "}
+          (16:9) for the gallery. The contact sheet is only shown to subscribers; keep it under 1.5 MB. Uploading the same folder
+          name again replaces it.
           {!blob && ` Up to ${maxMb} MB without Vercel Blob.`}
         </p>
       </div>
       <div>
-        <label className="label" htmlFor={`slug-${kind}`}>Id override (optional)</label>
-        <input id={`slug-${kind}`} name="slug" placeholder="from the folder name" className="input" />
+        <label className="label" htmlFor="slug-style">Id override (optional)</label>
+        <input id="slug-style" name="slug" placeholder="from style.json or the folder name" className="input" />
       </div>
       <div>
-        <label className="label" htmlFor={`tags-${kind}`}>Tags (comma separated)</label>
-        <input id={`tags-${kind}`} name="tags" placeholder={kind === "style" ? "saas, minimal, premium" : "recap, kinetic type, launch"} className="input" />
+        <label className="label" htmlFor="tags-style">Tags (comma separated, optional)</label>
+        <input id="tags-style" name="tags" placeholder="from style.json when empty" className="input" />
       </div>
       <label className="flex items-center gap-2 text-sm text-muted">
         <input type="checkbox" name="publish" className="accent-[var(--color-ember)]" /> Publish now

@@ -14,7 +14,7 @@ export const SHARED_GUIDES: Record<string, string> = {
 };
 
 // Bump when setup.md asks for something new: every user's AI then runs the checklist again.
-export const SETUP_VERSION = 1;
+export const SETUP_VERSION = 2;
 
 export const SHARED_SCRIPTS: Record<string, string> = {
   "framewright/fw-export.mjs": "fw-export.mjs",

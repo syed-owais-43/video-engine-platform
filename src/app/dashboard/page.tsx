@@ -101,10 +101,9 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
                 <p>{user.setupVersion >= SETUP_VERSION ? "Done" : "Your AI does it on first use"}</p>
               </div>
               <div>
-                <p className="text-muted">Libraries</p>
+                <p className="text-muted">Styles</p>
                 <p>
-                  <Link href="/styles" className="underline hover:text-ember">Styles</Link> ·{" "}
-                  <Link href="/inspiration" className="underline hover:text-ember">Inspiration</Link>
+                  <Link href="/styles" className="underline hover:text-ember">Browse the style library</Link>
                 </p>
               </div>
             </div>
