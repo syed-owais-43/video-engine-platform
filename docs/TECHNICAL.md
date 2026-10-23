@@ -56,7 +56,7 @@ npm run dev            # applies migrations first; open http://localhost:3000 �
 
 With no `DATABASE_URL`, data lives in `.data/pglite` (one process at a time: stop `npm run dev` before running scripts).
 Engines can be uploaded in Admin → Engines, or from the CLI:
-`npm run engine:import -- <folder-or-zip> --version 3.5.3 --name "Motion Video Director" --tags "motion graphics,explainer" --publish`.
+`npm run engine:import -- <folder-or-zip> --version 3.6.0 --name "Motion Video Director" --tags "motion graphics,explainer" --publish`.
 
 Smoke-test the MCP server with an API key from the dashboard:
 
@@ -90,7 +90,7 @@ for Claude Desktop (proxies the site's tools with an API key; adds `install_engi
 - `fw-export.mjs` — added to every engine bundle at `<skill>/framewright/fw-export.mjs`. `validate` / `package` a timeline
   into a folder with `.fcpxml` (Final Cut, Resolve), Premiere XML (Premiere, Resolve), `.srt` captions, `Media/` and a README.
 
-Engines need a way to render one layer with transparency. motion-video-director 3.5.3 adds `render.js --layers <ids> --alpha`.
+Engines need a way to render one layer with transparency. motion-video-director 3.6.0 adds `render.js --layers <ids> --alpha` (3.5.2 and earlier lack it).
 
 ## Timeline editor (`/editor`)
 

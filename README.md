@@ -52,7 +52,7 @@ You run everything from an **admin panel**: brand, payments, plan, engines, styl
 
 **Files:**
 - This repository.
-- **The video engine ZIP** (e.g. `motion-video-director-3.5.3.zip`). It is licensed material and is **not** in this
+- **The video engine ZIP** (e.g. `Motion_Video_Director_v3.6.0_Claude_Code_Plugin.zip`). It is licensed material and is **not** in this
   repository; you receive it privately. You'll upload it in the admin panel (step 6).
 
 **On your computer** (only for local testing and publishing the Companion): [Node.js 20 or newer](https://nodejs.org).
@@ -180,7 +180,7 @@ The Settings page shows the exact origin and redirect address to enter in Google
 client ID (Web application). Paste the client ID and secret, save.
 
 ### Engines
-**Admin → Engines** → upload the engine ZIP, version (e.g. `3.5.3`), tags (e.g. *motion graphics, kinetic typography,
+**Admin → Engines** → upload the engine ZIP, version (e.g. `3.6.0`), tags (e.g. *motion graphics, kinetic typography,
 explainer, promo*), tick **Publish engine**. New engines and versions are uploaded the same way.
 
 ### Styles

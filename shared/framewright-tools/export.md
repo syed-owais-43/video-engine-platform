@@ -32,7 +32,7 @@ Work inside the project. Put everything in `renders/edit/v<N>/`.
    Do not apply final loudness normalization to stems; record each stem's mix level as `gainDb` instead.
 
 ### motion-video-director
-Its renderer (`<skill>/templates/render/render.js`, v3.5.3+) supports layers. Give the captions scene(s) `layer: 'captions'`
+Its renderer (`<skill>/templates/render/render.js`, v3.6.0+) supports layers. Give the captions scene(s) `layer: 'captions'`
 in `data.js` (all other scenes default to their own id as layer) and render:
 
 ```

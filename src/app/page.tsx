@@ -107,7 +107,7 @@ export default async function Home() {
                 <span className="text-ember">you ›</span> 20s kinetic-type promo for our app launch, 9:16, punchy, ref: launch.mp4
               </p>
               <p className="text-faint">⏺ framewright.start_project</p>
-              <p className="pl-4 text-muted">Selected engine: motion-video-director v3.5.2</p>
+              <p className="pl-4 text-muted">Selected engine: motion-video-director v3.6.0</p>
               <p className="text-faint">⏺ framewright.get_guide reference/visual-design.md</p>
               <p className="text-faint">⏺ bash python analyze_ref.py launch.mp4</p>
               <p className="pl-4 text-muted">Storyboard: 6 beats, 120 BPM grid, approve?</p>
