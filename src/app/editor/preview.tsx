@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Bridge } from "./bridge";
 import { clipDuration, clipIn, dbToGain, type MediaInfo, type Timeline } from "./model";
 
@@ -10,7 +10,7 @@ type Kind = "video" | "image" | "audio";
 // The element kind is part of the key, so a clip whose file info arrives later (e.g. an image
 // added before it was probed) gets the right element instead of keeping a wrong one.
 const kindOf = (trackKind: string, info: MediaInfo | undefined): Kind => (trackKind === "audio" ? "audio" : info?.still ? "image" : "video");
-const keyOf = (id: string, src: string, kind: Kind) => `${id}:${src}:${kind}`;
+const keyOf = (id: string, src: string, kind: Kind, version?: number) => `${id}:${src}:${kind}:${version ?? 0}`;
 
 type Props = {
   tl: Timeline;
@@ -22,12 +22,16 @@ type Props = {
   playing: boolean;
   onTick: (t: number) => void;
   onEnded: () => void;
+  // Dashed title-safe area (6% inset) and a label naming the scene under the playhead.
+  guides?: boolean;
+  badge?: string | null;
 };
 
 // Plays the timeline by keeping one media element per clip in sync with a shared clock and
 // compositing the visible ones onto a canvas, bottom track first.
-export function Preview({ tl, media, bridge, project, time, duration, playing, onTick, onEnded }: Props) {
+export function Preview({ tl, media, bridge, project, time, duration, playing, onTick, onEnded, guides, badge }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const els = useRef(new Map<string, El>());
   const gains = useRef(new Map<string, GainNode>());
   const audioCtx = useRef<AudioContext | null>(null);
@@ -40,15 +44,16 @@ export function Preview({ tl, media, bridge, project, time, duration, playing, o
 
   // Create/remove media elements as clips change.
   useEffect(() => {
-    const wanted = new Map<string, { src: string; kind: Kind }>();
+    const wanted = new Map<string, { src: string; kind: Kind; version?: number }>();
     for (const t of tl.tracks) {
       if (t.kind === "captions") {
-        if (t.overlay) wanted.set(`overlay:${t.overlay}`, { src: t.overlay, kind: "video" });
+        if (t.overlay) wanted.set(`overlay:${t.overlay}:${media[t.overlay]?.mtime ?? 0}`, { src: t.overlay, kind: "video", version: media[t.overlay]?.mtime });
         continue;
       }
       for (const c of t.clips) {
         const kind = kindOf(t.kind, media[c.src]);
-        wanted.set(keyOf(c.id, c.src, kind), { src: c.src, kind });
+        const version = media[c.src]?.mtime;
+        wanted.set(keyOf(c.id, c.src, kind, version), { src: c.src, kind, version });
       }
     }
     const map = els.current;
@@ -65,7 +70,7 @@ export function Preview({ tl, media, bridge, project, time, duration, playing, o
     }
     for (const [key, w] of wanted) {
       if (map.has(key)) continue;
-      const url = bridge.mediaUrl(project, w.src, w.kind === "video");
+      const url = bridge.mediaUrl(project, w.src, w.kind === "video", w.version);
       let el: El;
       if (w.kind === "image") {
         el = new Image();
@@ -166,7 +171,7 @@ export function Preview({ tl, media, bridge, project, time, duration, playing, o
   function sync(tl: Timeline, media: Record<string, MediaInfo>, t: number, isPlaying: boolean) {
     for (const track of tl.tracks) {
       if (track.kind === "captions") {
-        const el = track.overlay ? els.current.get(`overlay:${track.overlay}`) : undefined;
+        const el = track.overlay ? els.current.get(`overlay:${track.overlay}:${media[track.overlay]?.mtime ?? 0}`) : undefined;
         if (el instanceof HTMLVideoElement) {
           const on = !track.muted && track.overlayEnabled !== false && !track.overlayStale;
           syncEl(el, on && t < (media[track.overlay!]?.duration ?? 0), t, isPlaying, tl.fps);
@@ -174,7 +179,7 @@ export function Preview({ tl, media, bridge, project, time, duration, playing, o
         continue;
       }
       for (const c of track.clips) {
-        const key = keyOf(c.id, c.src, kindOf(track.kind, media[c.src]));
+        const key = keyOf(c.id, c.src, kindOf(track.kind, media[c.src]), media[c.src]?.mtime);
         const el = els.current.get(key);
         if (!(el instanceof HTMLMediaElement)) continue;
         const dur = clipDuration(c, media);
@@ -209,7 +214,7 @@ export function Preview({ tl, media, bridge, project, time, duration, playing, o
     for (const track of tl.tracks) {
       if (track.kind === "audio" || track.muted) continue;
       if (track.kind === "captions") {
-        const overlay = track.overlay ? els.current.get(`overlay:${track.overlay}`) : undefined;
+        const overlay = track.overlay ? els.current.get(`overlay:${track.overlay}:${media[track.overlay]?.mtime ?? 0}`) : undefined;
         if (overlay instanceof HTMLVideoElement && track.overlayEnabled !== false && !track.overlayStale) {
           if (overlay.readyState >= 2 && t < (media[track.overlay!]?.duration ?? 0)) drawFit(ctx, overlay, overlay.videoWidth, overlay.videoHeight, W, H);
         } else {
@@ -222,21 +227,38 @@ export function Preview({ tl, media, bridge, project, time, duration, playing, o
         if (c.muted) continue;
         const local = t - c.start;
         if (local < 0 || local >= clipDuration(c, media)) continue;
-        const el = els.current.get(keyOf(c.id, c.src, kindOf(track.kind, media[c.src])));
+        const el = els.current.get(keyOf(c.id, c.src, kindOf(track.kind, media[c.src]), media[c.src]?.mtime));
         if (el instanceof HTMLVideoElement && el.readyState >= 2) drawFit(ctx, el, el.videoWidth, el.videoHeight, W, H);
         else if (el instanceof HTMLImageElement && el.complete && el.naturalWidth) drawFit(ctx, el, el.naturalWidth, el.naturalHeight, W, H);
       }
     }
   }
 
+  // Overlays follow the canvas's displayed box (it's letterboxed inside the stage).
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBox({ left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
-    <canvas
-      ref={canvas}
-      width={tl.width}
-      height={tl.height}
-      className="max-h-full max-w-full rounded-md bg-black shadow-2xl shadow-black/60"
-      style={{ aspectRatio: `${tl.width} / ${tl.height}` }}
-    />
+    <div className="relative flex h-full w-full items-center justify-center">
+      <canvas
+        ref={canvas}
+        width={tl.width}
+        height={tl.height}
+        className="max-h-full max-w-full rounded-md bg-black shadow-2xl shadow-black/60"
+        style={{ aspectRatio: `${tl.width} / ${tl.height}` }}
+      />
+      {box && (guides || badge) && (
+        <div className="pointer-events-none absolute" style={box}>
+          {guides && <div className="absolute inset-[6%] rounded-md border border-dashed border-white/20" />}
+          {badge && <span className="absolute top-3 left-3 max-w-[70%] truncate rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-white/90 backdrop-blur">{badge}</span>}
+        </div>
+      )}
+    </div>
   );
 }
 

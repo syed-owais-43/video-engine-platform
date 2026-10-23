@@ -1,16 +1,6 @@
 import Stripe from "stripe";
 import { stripe, syncSubscription } from "@/lib/stripe";
 import { getSettings } from "@/lib/settings";
-import { grantPurchase } from "@/lib/credits";
-
-// Credit packs are one-off Checkout payments tagged with metadata.kind = "credits".
-async function maybeGrantCredits(session: Stripe.Checkout.Session) {
-  const m = session.metadata ?? {};
-  if (session.mode !== "payment" || m.kind !== "credits" || session.payment_status !== "paid") return;
-  const credits = Number(m.credits);
-  if (!m.userId || !Number.isInteger(credits) || credits <= 0) return;
-  await grantPurchase(m.userId, credits, session.id, m.packName ?? "Credit pack");
-}
 
 export async function POST(req: Request) {
   const secret = (await getSettings()).stripe.webhookSecret;
@@ -40,12 +30,8 @@ export async function POST(req: Request) {
         const id = typeof session.subscription === "string" ? session.subscription : session.subscription.id;
         await syncSubscription(await (await stripe()).subscriptions.retrieve(id));
       }
-      await maybeGrantCredits(session);
       break;
     }
-    case "checkout.session.async_payment_succeeded":
-      await maybeGrantCredits(event.data.object);
-      break;
   }
   return Response.json({ received: true });
 }

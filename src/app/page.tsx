@@ -33,11 +33,15 @@ const faqs = (name: string) => [
   },
   {
     q: "What do I need installed?",
-    a: "Node.js 20+, Python 3.10+ and FFmpeg. Your AI runs a read-only check first and tells you what's missing before installing anything.",
+    a: "Nothing up front. The first time you connect, your AI sets up your computer itself: FFmpeg, a headless browser for rendering, Python with the analysis and speech models, Voicebox for free local voice-overs, and yt-dlp for reference links.",
+  },
+  {
+    q: "Can I choose the look?",
+    a: `Yes. Pick a style from the ${name} style library, or send your AI a reference video or a link to one. It builds your video in that look, with sound effects, fonts, textures and animations from our resource packs.`,
   },
   {
     q: "Can I edit the video myself?",
-    a: `Yes. Open it in the ${name} timeline editor in your browser to move, trim and split scenes, balance voice, music and sound effects, fix captions and add your own images or clips. Export a new MP4 in seconds, or leave notes for your AI to change something inside a scene. Your files stay on your computer.`,
+    a: `Yes. Open it in the ${name} timeline editor in your browser to move, trim and split scenes, change each scene's text, colours, size, speed and easing with sliders (re-rendered on your PC, no AI and no tokens needed), balance voice, music and sound effects, fix captions and add your own images or clips. Your files stay on your computer.`,
   },
   {
     q: "Can I keep editing in Premiere, Resolve or Final Cut?",
@@ -85,8 +89,8 @@ export default async function Home() {
               <Link href="/signup" className="btn-primary">
                 Start creating
               </Link>
-              <Link href="/docs" className="btn-ghost">
-                How to connect
+              <Link href="/styles" className="btn-ghost">
+                Browse styles
               </Link>
             </div>
           </div>
@@ -103,7 +107,7 @@ export default async function Home() {
                 <span className="text-ember">you ›</span> 20s kinetic-type promo for our app launch, 9:16, punchy, ref: launch.mp4
               </p>
               <p className="text-faint">⏺ framewright.start_project</p>
-              <p className="pl-4 text-muted">Selected engine: motion-video-director v3.5.2</p>
+              <p className="pl-4 text-muted">Selected engine: motion-video-director v3.6.0</p>
               <p className="text-faint">⏺ framewright.get_guide reference/visual-design.md</p>
               <p className="text-faint">⏺ bash python analyze_ref.py launch.mp4</p>
               <p className="pl-4 text-muted">Storyboard: 6 beats, 120 BPM grid, approve?</p>

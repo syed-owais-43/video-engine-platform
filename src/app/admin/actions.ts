@@ -4,13 +4,12 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { creditPacks, engineVersions, engines, plans, sessions, users } from "@/db/schema";
+import { engineVersions, engines, plans, sessions, users } from "@/db/schema";
 import { randomBytes } from "node:crypto";
 import { hashPassword, requireAdmin } from "@/lib/auth";
 import { filesFromZip, importEngineVersion } from "@/lib/engines";
-import { adminAdjust } from "@/lib/credits";
 import { stripeReady } from "@/lib/settings";
-import { formatPrice, syncPackToStripe, syncPlanToStripe } from "@/lib/stripe-admin";
+import { formatPrice, syncPlanToStripe } from "@/lib/stripe-admin";
 
 export type FormState = { ok?: string; error?: string } | undefined;
 
@@ -112,8 +111,6 @@ const planSchema = z.object({
   description: z.string().trim().max(300),
   price: money,
   currency: z.string().trim().toLowerCase().regex(/^[a-z]{3}$/, "Currency must be a 3-letter code like usd"),
-  monthlyCredits: z.coerce.number().int().min(0).max(1_000_000),
-  monthlyProjects: z.string().trim().regex(/^\d*$/, "Project limit must be a whole number or blank"),
   sort: z.coerce.number().int().min(0).max(999),
 });
 
@@ -128,9 +125,6 @@ export async function savePlan(_: FormState, form: FormData): Promise<FormState>
     priceCents: d.price,
     currency: d.currency,
     priceLabel: formatPrice(d.price, d.currency, true),
-    monthlyCredits: d.monthlyCredits,
-    monthlyProjects: d.monthlyProjects === "" ? null : Number(d.monthlyProjects),
-    imageModels: form.getAll("imageModels").map(String),
     commercialUse: form.get("commercialUse") === "on",
     sort: d.sort,
     features: lines(form.get("features")),
@@ -168,48 +162,4 @@ export async function publishPlan(_: FormState, form: FormData): Promise<FormSta
   revalidatePath("/admin/plans");
   revalidatePath("/pricing");
   return { ok: "Published to Stripe. Customers can subscribe now." };
-}
-
-// ---- Credit packs ----
-
-const packSchema = z.object({
-  name: z.string().trim().min(1).max(60),
-  credits: z.coerce.number().int().min(1).max(10_000_000),
-  price: money,
-  currency: z.string().trim().toLowerCase().regex(/^[a-z]{3}$/, "Currency must be a 3-letter code like usd"),
-  sort: z.coerce.number().int().min(0).max(999),
-});
-
-export async function savePack(_: FormState, form: FormData): Promise<FormState> {
-  await requireAdmin();
-  const parsed = packSchema.safeParse(Object.fromEntries(form));
-  if (!parsed.success) return { error: parsed.error.issues[0].message };
-  const d = parsed.data;
-  const values = { name: d.name, credits: d.credits, priceCents: d.price, currency: d.currency, sort: d.sort, active: form.get("active") === "on" };
-  const id = String(form.get("id") ?? "");
-  const [saved] = id
-    ? await db.update(creditPacks).set(values).where(eq(creditPacks.id, id)).returning()
-    : await db.insert(creditPacks).values(values).returning();
-  let note = id ? "Pack saved." : "Pack created.";
-  if (await stripeReady()) {
-    try {
-      await syncPackToStripe(saved);
-      note += " Stripe is up to date.";
-    } catch (e) {
-      note += ` Stripe update failed: ${e instanceof Error ? e.message : e}`;
-    }
-  } else note += " Connect Stripe to start selling it.";
-  revalidatePath("/admin/plans");
-  revalidatePath("/dashboard");
-  return { ok: note };
-}
-
-// ---- Credits ----
-
-export async function adjustCredits(form: FormData) {
-  const admin = await requireAdmin();
-  const delta = Math.trunc(Number(form.get("delta")));
-  if (!delta || Math.abs(delta) > 10_000_000) return;
-  await adminAdjust(String(form.get("id")), delta, `by ${admin.email}${form.get("note") ? `: ${String(form.get("note")).slice(0, 200)}` : ""}`);
-  revalidatePath("/admin/users");
 }

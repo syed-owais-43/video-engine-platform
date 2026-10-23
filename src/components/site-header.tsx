@@ -23,6 +23,9 @@ export async function SiteHeader() {
           <span className="font-display text-2xl leading-none">{brand.name}</span>
         </Link>
         <nav className="flex items-center gap-1 whitespace-nowrap text-sm sm:gap-2">
+          <Link href="/styles" className="hidden rounded-full px-3 py-2 text-muted hover:text-paper md:block">
+            Styles
+          </Link>
           <Link href="/docs" className="hidden rounded-full px-3 py-2 text-muted hover:text-paper sm:block">
             Connect
           </Link>

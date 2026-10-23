@@ -1,9 +1,9 @@
-import { and, desc, eq, ilike, inArray, or, sum } from "drizzle-orm";
+import { desc, eq, ilike, or } from "drizzle-orm";
 import { db } from "@/db";
-import { creditLedger, plans, subscriptions, users } from "@/db/schema";
+import { plans, subscriptions, users } from "@/db/schema";
 import { ACTIVE_STATUSES } from "@/lib/access";
 import { getCurrentUser, isAdmin } from "@/lib/auth";
-import { adjustCredits, setUserFlags } from "../actions";
+import { setUserFlags } from "../actions";
 import { ResetPasswordButton } from "../forms";
 
 function Toggle({ id, field, value, label }: { id: string; field: string; value: boolean; label: string }) {
@@ -41,16 +41,6 @@ export default async function AdminUsers(props: PageProps<"/admin/users">) {
     if (!prev || (active && !(prev.sub && ACTIVE_STATUSES.includes(prev.sub.status)))) byUser.set(r.user.id, r);
   }
 
-  const ids = [...byUser.keys()];
-  const topups = ids.length
-    ? await db
-        .select({ userId: creditLedger.userId, n: sum(creditLedger.delta) })
-        .from(creditLedger)
-        .where(and(inArray(creditLedger.userId, ids), eq(creditLedger.bucket, "topup")))
-        .groupBy(creditLedger.userId)
-    : [];
-  const credits = new Map(topups.map((t) => [t.userId, Number(t.n ?? 0)]));
-
   return (
     <section className="card overflow-x-auto">
       <form className="mb-6 flex gap-2">
@@ -64,7 +54,7 @@ export default async function AdminUsers(props: PageProps<"/admin/users">) {
             <th>Joined</th>
             <th>Subscription</th>
             <th>Access</th>
-            <th>Extra credits</th>
+            <th>Voice</th>
           </tr>
         </thead>
         <tbody>
@@ -99,14 +89,7 @@ export default async function AdminUsers(props: PageProps<"/admin/users">) {
                     {me?.id !== user.id && <ResetPasswordButton id={user.id} />}
                   </div>
                 </td>
-                <td>
-                  <form action={adjustCredits} className="flex items-center gap-1.5">
-                    <input type="hidden" name="id" value={user.id} />
-                    <span className="w-14 text-xs text-muted tabular-nums" title="Top-up credits: purchases and admin adjustments, minus what was spent from them">{credits.get(user.id) ?? 0}</span>
-                    <input name="delta" type="number" placeholder="±" className="input w-20 !px-2 !py-1 text-xs" />
-                    <button className="text-xs text-muted hover:text-paper">Apply</button>
-                  </form>
-                </td>
+                <td className="text-xs text-muted">{user.voiceProvider === "elevenlabs" && user.elevenlabsKey ? "ElevenLabs (own key)" : "Voicebox"}</td>
               </tr>
             );
           })}

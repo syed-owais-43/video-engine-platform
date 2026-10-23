@@ -7,22 +7,13 @@ import { appSecret } from "./config";
 // Everything the site owner configures from the admin panel. Stored per section, encrypted with a
 // key derived from APP_SECRET (so database backups never contain usable API keys).
 
-export type ImageModel = { key: string; label: string; endpoint: string; credits: number; enabled: boolean };
-
 export type AppSettings = {
   brand: { name: string; tagline: string; accent: string; supportEmail: string; logo: string | null; companionPackage: string };
   stripe: { secretKey: string; webhookSecret: string; webhookEndpointId: string; accountKey: string };
   google: { clientId: string; clientSecret: string };
-  images: { enabled: boolean; falKey: string; models: ImageModel[] };
 };
 
 export type SectionKey = keyof AppSettings;
-
-export const DEFAULT_IMAGE_MODELS: ImageModel[] = [
-  { key: "schnell", label: "FLUX Schnell (draft)", endpoint: "fal-ai/flux/schnell", credits: 1, enabled: true },
-  { key: "dev", label: "FLUX Dev (high quality)", endpoint: "fal-ai/flux/dev", credits: 4, enabled: true },
-  { key: "pro", label: "FLUX Pro (best)", endpoint: "fal-ai/flux-pro/v1.1", credits: 15, enabled: true },
-];
 
 function defaults(): AppSettings {
   return {
@@ -37,7 +28,6 @@ function defaults(): AppSettings {
     // Environment variables still work as a fallback (useful for local development).
     stripe: { secretKey: process.env.STRIPE_SECRET_KEY ?? "", webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "", webhookEndpointId: "", accountKey: "" },
     google: { clientId: process.env.GOOGLE_CLIENT_ID ?? "", clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "" },
-    images: { enabled: false, falKey: process.env.FAL_KEY ?? "", models: DEFAULT_IMAGE_MODELS },
   };
 }
 

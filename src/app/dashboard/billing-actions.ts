@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { creditPacks, plans } from "@/db/schema";
+import { plans } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { getAccess } from "@/lib/access";
 import { baseUrl } from "@/lib/config";
@@ -30,26 +30,6 @@ export async function startCheckout(form: FormData) {
     allow_promotion_codes: true,
     success_url: `${baseUrl()}/dashboard?billing=success`,
     cancel_url: `${baseUrl()}/pricing`,
-  });
-  redirect(session.url!);
-}
-
-export async function buyCredits(form: FormData) {
-  const user = await requireUser("/dashboard");
-  if (!(await stripeReady())) redirect("/dashboard?billing=unconfigured");
-  const [pack] = await db
-    .select()
-    .from(creditPacks)
-    .where(and(eq(creditPacks.id, String(form.get("packId") ?? "")), eq(creditPacks.active, true)));
-  if (!pack?.stripePriceId) redirect("/dashboard");
-  const customer = await ensureCustomer(user);
-  const session = await (await stripe()).checkout.sessions.create({
-    mode: "payment",
-    customer,
-    line_items: [{ price: pack.stripePriceId, quantity: 1 }],
-    metadata: { kind: "credits", userId: user.id, packId: pack.id, credits: String(pack.credits), packName: pack.name },
-    success_url: `${baseUrl()}/dashboard?billing=credits`,
-    cancel_url: `${baseUrl()}/dashboard`,
   });
   redirect(session.url!);
 }

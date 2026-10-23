@@ -1,7 +1,7 @@
 // Client for the Framewright Companion's editor bridge on 127.0.0.1. The pairing token comes
 // from the URL fragment the companion opens, so it never reaches the Framewright server.
 
-import type { EditorRequest, MediaInfo, Timeline } from "./model";
+import type { EditorRequest, MediaInfo, ParamValue, SceneParams, Timeline } from "./model";
 
 export type BridgeConfig = { bridge: string; token: string };
 export type Project = { id: string; name: string; path: string; mtime: number };
@@ -87,9 +87,14 @@ export class Bridge {
     this.call<{ job: Job }>(`/api/render?${this.q(p)}`, { method: "POST", body: JSON.stringify({ captions }) });
   exportPackage = (p: string) => this.call<{ job: Job }>(`/api/export-package?${this.q(p)}`, { method: "POST", body: "{}" });
   job = (id: string) => this.call<{ job: Job }>(`/api/jobs/${id}`);
+  scene = (p: string, path: string) => this.call<{ scene: SceneParams; mtime: number; job: Job | null }>(`/api/scene?${this.q(p, { path })}`);
+  saveScene = (p: string, path: string, values: Record<string, ParamValue>) =>
+    this.call<{ scene: SceneParams; mtime: number }>(`/api/scene?${this.q(p, { path })}`, { method: "PUT", body: JSON.stringify({ values }) });
+  renderScene = (p: string, path: string) => this.call<{ job: Job }>(`/api/scene/render?${this.q(p, { path })}`, { method: "POST", body: "{}" });
   reveal = (path: string) => this.call<{ ok: true }>("/api/reveal", { method: "POST", body: JSON.stringify({ path }) });
 
   // preview=1 asks the companion for a browser-playable copy (e.g. ProRes → VP9 with alpha).
-  mediaUrl = (p: string, src: string, preview = false) =>
-    `${this.cfg.bridge}/media?${this.q(p, { src, token: this.cfg.token, ...(preview ? { preview: "1" } : {}) })}`;
+  // version (the file's mtime) changes the URL when a scene is re-rendered in place.
+  mediaUrl = (p: string, src: string, preview = false, version?: number) =>
+    `${this.cfg.bridge}/media?${this.q(p, { src, token: this.cfg.token, ...(preview ? { preview: "1" } : {}), ...(version ? { v: String(Math.round(version)) } : {}) })}`;
 }

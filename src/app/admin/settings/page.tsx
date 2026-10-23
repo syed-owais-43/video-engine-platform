@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { count, eq, isNotNull } from "drizzle-orm";
+import { and, count, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
-import { engines, plans } from "@/db/schema";
+import { engines, libraryItems, plans } from "@/db/schema";
 import { baseUrl } from "@/lib/config";
 import { getSettings, mask } from "@/lib/settings";
 import { webhookUrl } from "@/lib/stripe-admin";
+import { blobEnabled } from "@/lib/storage";
 import { disconnectStripe } from "./actions";
-import { BrandForm, GoogleForm, ImagesForm, StripeForm, TestImageForm } from "./forms";
+import { BrandForm, GoogleForm, StripeForm } from "./forms";
 
 function Step({ done, children, optional }: { done: boolean; children: React.ReactNode; optional?: boolean }) {
   return (
@@ -24,9 +25,13 @@ function Step({ done, children, optional }: { done: boolean; children: React.Rea
 export default async function AdminSettings(props: PageProps<"/admin/settings">) {
   const welcome = (await props.searchParams).welcome === "1";
   const s = await getSettings();
-  const [[{ published }], [{ priced }]] = await Promise.all([
+  const shelf = (kind: "style" | "pack") =>
+    db.select({ n: count() }).from(libraryItems).where(and(eq(libraryItems.kind, kind), eq(libraryItems.published, true)));
+  const [[{ published }], [{ priced }], [styles], [packs]] = await Promise.all([
     db.select({ published: count() }).from(engines).where(eq(engines.published, true)),
     db.select({ priced: count() }).from(plans).where(isNotNull(plans.stripePriceId)),
+    shelf("style"),
+    shelf("pack"),
   ]);
   const stripeOn = Boolean(s.stripe.secretKey);
   const googleOn = Boolean(s.google.clientId && s.google.clientSecret);
@@ -46,7 +51,13 @@ export default async function AdminSettings(props: PageProps<"/admin/settings">)
           <Step done={published > 0}>
             Publish at least one video engine in <Link href="/admin/engines" className="underline">Engines</Link>
           </Step>
-          <Step done={s.images.enabled} optional>Turn on AI image generation (Images, below)</Step>
+          <Step done={blobEnabled()}>Connect a Vercel Blob store for videos and packs (Vercel → Storage → Create → Blob)</Step>
+          <Step done={styles.n > 0}>
+            Publish styles in <Link href="/admin/styles" className="underline">Styles</Link>
+          </Step>
+          <Step done={packs.n > 0}>
+            Publish sound, font, texture or Lottie packs in <Link href="/admin/packs" className="underline">Packs</Link>
+          </Step>
           <Step done={googleOn} optional>Let customers sign in with Google (Google sign-in, below)</Step>
           <Step done={s.brand.companionPackage !== "framewright-companion"} optional>
             Publish the companion to npm under your own name and enter it in Brand
@@ -66,7 +77,7 @@ export default async function AdminSettings(props: PageProps<"/admin/settings">)
           <span className={`pill ${stripeOn ? "border-ok/40 text-ok" : "border-line text-muted"}`}>{stripeOn ? (s.stripe.secretKey.includes("_test_") ? "connected · test mode" : "connected · live") : "not connected"}</span>
         </div>
         <p className="mb-5 text-sm text-muted">
-          Subscriptions and credit packs are charged through your Stripe account. Stripe must support the country your business is
+          Subscriptions are charged through your Stripe account. Stripe must support the country your business is
           registered in.
         </p>
         <StripeForm connected={stripeOn} maskedKey={mask(s.stripe.secretKey)} hasWebhook={Boolean(s.stripe.webhookSecret)} webhookUrl={webhookUrl()} isHttps={isHttps} />
@@ -74,22 +85,6 @@ export default async function AdminSettings(props: PageProps<"/admin/settings">)
           <form action={disconnectStripe} className="mt-3 text-right">
             <button className="text-xs text-bad hover:underline">Disconnect Stripe</button>
           </form>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="display text-3xl">Images (fal.ai)</h2>
-          <span className={`pill ${s.images.enabled ? "border-ok/40 text-ok" : "border-line text-muted"}`}>{s.images.enabled ? "on" : "off"}</span>
-        </div>
-        <p className="mb-5 text-sm text-muted">
-          When on, customers&apos; AI can generate images for their videos, paid for with the credits in their plan or bought packs.
-        </p>
-        <ImagesForm enabled={s.images.enabled} hasKey={Boolean(s.images.falKey)} models={s.images.models} />
-        {s.images.falKey && (
-          <div className="mt-5 border-t border-line pt-5">
-            <TestImageForm models={s.images.models} />
-          </div>
         )}
       </section>
 

@@ -7,12 +7,14 @@ import {
   formatTime,
   overlaps,
   snapFrame,
+  trackFilter,
   type CaptionTrack,
   type MediaInfo,
   type MediaTrack,
   type Selection,
   type Timeline,
   type Track,
+  type TrackFilter,
 } from "./model";
 
 const HEADER = 172;
@@ -45,9 +47,11 @@ type Props = {
   onCommit: (tl: Timeline) => void;
   onError: (msg: string) => void;
   onTrackPatch: (trackId: string, patch: Partial<Track>) => void;
+  // Track kinds hidden from view by the editor's filter bar (still part of the timeline).
+  hidden?: Set<TrackFilter>;
 };
 
-export function TimelineView({ tl, media, pps, time, duration, selection, onSelect, onSeek, onCommit, onError, onTrackPatch }: Props) {
+export function TimelineView({ tl, media, pps, time, duration, selection, onSelect, onSeek, onCommit, onError, onTrackPatch, hidden }: Props) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const rows = useRef(new Map<string, HTMLDivElement>());
   const lanes = useRef<HTMLDivElement>(null);
@@ -230,7 +234,9 @@ export function TimelineView({ tl, media, pps, time, duration, selection, onSele
         </div>
 
         {/* Tracks: listed top-down, so video tracks are reversed (top track drawn last in the preview). */}
-        {orderForDisplay(tl.tracks).map((track) => (
+        {orderForDisplay(tl.tracks)
+          .filter((track) => !hidden?.has(trackFilter(track)))
+          .map((track) => (
           <div
             key={track.id}
             ref={(el) => {

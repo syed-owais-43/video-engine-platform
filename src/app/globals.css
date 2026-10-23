@@ -91,3 +91,63 @@ body {
     @apply border-b border-line/60 py-3 pr-4 align-top;
   }
 }
+
+/* Editor scene sliders (src/app/editor/scene-panel.tsx). */
+.fw-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 4px;
+  outline: 0;
+  background: linear-gradient(90deg, var(--color-ember) var(--v, 50%), var(--color-line) var(--v, 50%));
+}
+.fw-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--color-ember);
+  cursor: pointer;
+}
+.fw-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--color-ember);
+  cursor: pointer;
+}
+.fw-runner {
+  animation: fw-run 1.4s infinite alternate;
+}
+@keyframes fw-run {
+  to {
+    left: calc(100% - 15px);
+  }
+}
+@keyframes fw-in-up {
+  from { opacity: 0; transform: translateY(40%); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fw-in-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fw-in-blur {
+  from { opacity: 0; filter: blur(8px); }
+  to { opacity: 1; filter: none; }
+}
+@keyframes fw-in-scale {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fw-in-mask {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+@keyframes fw-in-type {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}

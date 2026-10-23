@@ -89,7 +89,8 @@ export async function ConnectGuide({ apiKey }: { apiKey?: string }) {
           code={`Use ${brand.name} to make a 15-second 9:16 kinetic typography teaser for my podcast "Late Signals". Dark, grainy, orange accents. Reference: ./refs/style.mp4`}
         />
         <p className="mt-3 text-sm text-muted">
-          Your AI checks your machine for Node, Python and FFmpeg first and asks before installing anything.
+          The first time, your AI sets up your computer by itself (FFmpeg, a headless browser, Python models, Voicebox, yt-dlp). After
+          that, pick a look from the <a href="/styles" className="text-paper underline">style library</a> or send it a reference video or link.
         </p>
       </section>
 

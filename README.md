@@ -3,11 +3,14 @@
 A subscription website that lets people make professional videos with **their own AI**.
 
 Customers connect Claude Code, Claude Desktop, Cursor or any MCP-capable AI to your site. They describe a video; their AI
-fetches the right video engine from your site and builds the video **on their own computer**. They pay you a monthly
-subscription (Stripe), can use AI image credits (fal.ai), fine-tune videos in a browser timeline editor, and export projects
-to Premiere Pro, DaVinci Resolve or Final Cut Pro.
+fetches the right video engine from your site and builds the video **on their own computer**. They pay you one flat monthly
+subscription (Stripe). On first use their AI sets up their computer by itself. It builds in a look from your **style
+library** (or from a reference video or link they send), uses your **resource packs** (sound
+effects, fonts, textures, Lottie) and narrates with Voicebox (free, local) or the customer's own ElevenLabs key. Customers
+fine-tune each scene with sliders in a browser editor without spending AI tokens, and export to MP4, Premiere Pro, DaVinci
+Resolve or Final Cut Pro.
 
-You run everything from an **admin panel**: brand, payments, image generation, plans, engines, users and analytics.
+You run everything from an **admin panel**: brand, payments, plan, engines, styles, packs, users and analytics.
 
 > **Setting this up with Claude?** Open this repository in Claude Code and say:
 > *"Read README.md and CLAUDE.md, then guide me through installing and launching this step by step."*
@@ -42,14 +45,14 @@ You run everything from an **admin panel**: brand, payments, image generation, p
 | [GitHub](https://github.com) | your copy of this code | yes |
 | [Vercel](https://vercel.com) | hosting the website | yes |
 | [Supabase](https://supabase.com) (or Neon) | the database | yes |
-| [Stripe](https://stripe.com) | subscriptions and credit packs | yes, to take payments |
+| [Stripe](https://stripe.com) | the subscription | yes, to take payments |
 | [npm](https://www.npmjs.com) | publishing the Companion app | yes |
-| [fal.ai](https://fal.ai) | AI image generation | optional |
+| Vercel Blob (inside your Vercel project) | style previews, reference videos and resource packs | yes, once you upload videos or packs |
 | [Google Cloud](https://console.cloud.google.com) | "Sign in with Google" | optional |
 
 **Files:**
 - This repository.
-- **The video engine ZIP** (e.g. `motion-video-director-3.5.3.zip`). It is licensed material and is **not** in this
+- **The video engine ZIP** (e.g. `Motion_Video_Director_v3.6.0_Claude_Code_Plugin.zip`). It is licensed material and is **not** in this
   repository; you receive it privately. You'll upload it in the admin panel (step 6).
 
 **On your computer** (only for local testing and publishing the Companion): [Node.js 20 or newer](https://nodejs.org).
@@ -113,9 +116,13 @@ Supabase-only security step.
    ```
 4. **Deploy.** The build creates all database tables automatically (you'll see them in Supabase → Table Editor).
 5. Optional: Vercel → Settings → Domains → add your domain, set `APP_URL` to it, and redeploy.
+6. **File storage (Vercel Blob):** your project → **Storage** → **Create Database** → **Blob** → name it → **Create** →
+   **Connect** it to this project (all environments). Vercel adds `BLOB_READ_WRITE_TOKEN` by itself; redeploy once. Style
+   previews, reference videos and resource packs are stored there. Without it, files go into the database and each upload is
+   limited to about 4 MB.
 
-> ⚠️ **Never change `APP_SECRET` after launch.** It encrypts the keys you enter in the admin panel. If it changes, you must
-> re-enter the Stripe, fal.ai and Google keys.
+> ⚠️ **Never change `APP_SECRET` after launch.** It encrypts the keys you enter in the admin panel and the ElevenLabs keys
+> your customers save. If it changes, you must re-enter the Stripe and Google keys, and customers must re-enter theirs.
 
 ### Lock down Supabase's automatic API (do this once)
 
@@ -161,33 +168,60 @@ Site name, tagline, logo (PNG/SVG under 200 KB), accent colour, support email. C
    the customer billing portal.
 4. **Admin → Plans** → press **Publish to Stripe** on each plan.
 
-### Plans and credits
-Three plans come pre-filled; edit anything:
+### Plan
+One flat plan comes pre-filled: **Unlimited, $5.99 / month**. Edit its name, price and features in **Admin → Plans**.
+Videos render on your customers' own computers, so there are no video limits or credits to manage.
 
-| Plan | Price | Image credits / month | Best image model | Rights |
-|---|---|---|---|---|
-| Starter | $2.99 | 200 | FLUX Schnell (draft) | Personal use only |
-| Creator | $5.99 | 500 | FLUX Dev (high quality) | Commercial |
-| Pro | $15.99 | 1,500 | FLUX Pro (best) | Commercial |
-
-- Image costs: Schnell 1 credit, Dev 4, Pro 15 (Settings → Images).
-- Monthly credits refill every billing period; unused ones expire.
-- **Credit packs** (bottom of Admin → Plans) are one-off top-ups that never expire, e.g. "500 credits for $4.99".
 - Changing a price creates a new Stripe price; existing subscribers keep their old price.
-- Leave "Videos / month" empty for unlimited videos.
-
-### Images (fal.ai), optional
-1. fal.ai account → add billing → **Dashboard → Keys** → create a key.
-2. Admin → Settings → Images: paste the key, tick "Let customers' AI generate images", save, then **Test**.
-3. You pay fal.ai per image; customers pay you through plans and credit packs. Make sure your prices cover your costs.
+- You can add more plans later, but one is all most sites need.
 
 ### Google sign-in, optional
 The Settings page shows the exact origin and redirect address to enter in Google Cloud Console → Credentials → OAuth
 client ID (Web application). Paste the client ID and secret, save.
 
 ### Engines
-**Admin → Engines** → upload the engine ZIP, version (e.g. `3.5.3`), tags (e.g. *motion graphics, kinetic typography,
+**Admin → Engines** → upload the engine ZIP, version (e.g. `3.6.0`), tags (e.g. *motion graphics, kinetic typography,
 explainer, promo*), tick **Publish engine**. New engines and versions are uploaded the same way.
+
+### Styles
+Customers' AI learns a look from text and a few still frames. The gallery at `/styles` on your site is for people browsing.
+Each style is one folder, uploaded as a ZIP (example: `editorial-explainer/`):
+
+| File | Who it's for | What it is |
+|---|---|---|
+| `style.json` | the AI, scene sliders | palette hex codes, fonts, sizes, easing, timings, SFX names, tags |
+| `recipe.md` | the AI | the rules in plain words: how text enters, transitions, dos and don'ts |
+| `frames.jpg` | the AI, subscribers | contact sheet (key frames on top, motion strips below), under 1.5 MB |
+| `breakdown.md`, `prompts.md`, other `.md` | the AI | shot-by-shot breakdown, image-prompt templates, any other notes (optional) |
+| `fonts/`, `sfx/` | the engine | the files the style uses (optional) |
+| `preview.mp4` | gallery visitors | a 5–10 s example (optional) |
+| `cover.jpg` | gallery visitors | a 16:9 cover image (optional) |
+
+- The AI receives `style.json` and every Markdown note in full, plus the contact sheet as an image.
+- **The contact sheet is subscribers-only**, because it can contain frames from other creators' videos. Visitors see the
+  `preview.mp4`, else the `cover.jpg`, else a card drawn from the style's palette. Add a `cover.jpg` or `preview.mp4` you own
+  so the gallery looks good.
+- Tags come from `style.json` unless you type others when uploading.
+
+**Making one:** give Claude a reference video (a file, or a link: it downloads it with yt-dlp). The motion engine's analysis
+makes the contact sheet and the breakdown; Claude writes `style.json` and `recipe.md` and zips the folder. Upload it in
+**Admin → Styles** and tick **Publish**. No coding needed. Uploading a folder with the same name again replaces it.
+
+> **Licence:** only publish videos and images you have the rights to.
+
+### Resource packs
+**Admin → Packs** → upload a ZIP of sound effects, fonts, textures, Lottie animations or music, with a name, a category and a
+short description of what's inside (customers' AI reads it), and tick **Publish**. Customers' Companion downloads each pack
+once into `~/.framewright/assets`; uploading the same pack again releases a new version. Only include files you're licensed
+to redistribute.
+
+### What customers get automatically
+- **Computer setup:** the first time their AI connects, it receives a checklist (FFmpeg, Playwright + Chromium, Python with
+  analysis and speech models, Voicebox, yt-dlp) and installs everything itself.
+- **Voice:** Voicebox (free, runs on their PC) by default. Customers who prefer ElevenLabs paste their own API key in their
+  dashboard; it's stored encrypted and never shown to their AI.
+- **Scene sliders:** in the timeline editor, each scene's text, colours, size, speed and easing can be changed with sliders
+  and re-rendered on their PC, without AI or tokens.
 
 ---
 
@@ -216,9 +250,9 @@ To release an update: bump `"version"` in `companion/package.json` and run `npm 
 1. Open the site in a private window, create a customer account and choose a plan.
 2. Pay with Stripe's test card `4242 4242 4242 4242`, any future date, any CVC.
 3. Dashboard → **Connect your AI**: follow the steps for Claude Code or Claude Desktop, then ask your AI for a short video.
-4. Try the timeline editor and buying a credit pack.
+4. Pick a style from `/styles`, and try the timeline editor with its scene sliders.
 5. **Go live:** copy Stripe's **live** secret key (`sk_live_…`) into Settings → Payments. Test and live mode are separate,
-   so press **Publish to Stripe** on each plan and save each credit pack again (the site reminds you).
+   so press **Publish to Stripe** on the plan again (the site reminds you).
 
 ---
 
@@ -228,10 +262,10 @@ To release an update: bump `"version"` in `companion/package.json` and run `npm 
 |---|---|
 | Signups, videos started, engine and tool usage | Admin → Analytics |
 | Give someone free access | Admin → Users → **Comp** |
-| Add or remove credits | Admin → Users → Extra credits → `50` or `-50` → Apply |
 | Someone forgot their password | Admin → Users → **Reset password**, then send them the temporary password |
 | Make someone an admin | Admin → Users → **Admin** |
-| Prices, credits, image models per plan | Admin → Plans |
+| Price and plan features | Admin → Plans |
+| New style or pack | Admin → Styles / Packs → upload ZIP, tick Published |
 | Refunds, cancellations, invoices | Stripe Dashboard (customers can also cancel from their dashboard) |
 | New engine or version | Admin → Engines → upload ZIP |
 | Roll back an engine | Admin → Engines → **Make current** on an older version |
@@ -256,6 +290,7 @@ Before deploying a code change, run locally: `npx tsc --noEmit`, `npx eslint src
 | Payments go through but subscriptions don't activate | Settings → Payments should show the webhook as set. In Stripe → Developers → Webhooks, the endpoint `https://<your-site>/api/stripe/webhook` should show successful deliveries. Reconnecting Stripe recreates it. |
 | "Stripe isn't connected" after changing `APP_SECRET` | Re-enter all keys in Settings. |
 | Customers' editor can't connect | They need the Companion running (the editor explains how), desktop Chrome, Edge or Firefox, and to allow "local network access" if asked. Safari isn't supported. |
+| "Uploads are limited to 4 MB" in Styles / Packs | Connect a Vercel Blob store (step 4.6) and redeploy. |
 | `npx <companion> … 404 Not Found` | The Companion isn't published yet, or the name in Admin → Settings → Brand doesn't match npm (step 7). |
 
 ---
@@ -266,7 +301,8 @@ Before deploying a code change, run locally: `npx tsc --noEmit`, `npx eslint src
   files and the local `.data/` database are ignored by git.
 - **Never commit the engine ZIP** or any engine files. This repository is public; the engine is licensed material that
   customers only receive through the site.
-- Customer videos, references and files never touch your server; only the engine instructions do.
+- Customer videos, references and files never touch your server; only the engine instructions and your library files do.
+  Customers' own ElevenLabs keys are stored encrypted and only used by the server to call ElevenLabs for them.
 
 ---
 
